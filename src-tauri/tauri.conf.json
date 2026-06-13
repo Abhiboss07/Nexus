@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nexus Control Center",
+  "version": "1.0.0-beta.1",
+  "identifier": "com.nexus.controlcenter",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Nexus Control Center",
+        "width": 1280,
+        "height": 832,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "theme": "Dark"
+      }
+    ],
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/32x32.png",
+      "tooltip": "Nexus Control Center",
+      "menuOnLeftClick": false
+    },
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhEOEIyODYwMEYxODVCNDEKUldSQld4Z1BZQ2lMalM0aFJiN1lneThFVjRONXYzU1RWMS9kZFk0WnZzWU5QaGx3OWdQeFFLWjQK",
+      "endpoints": [
+        "https://releases.nexuscontrol.app/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm", "appimage"],
+    "publisher": "Nexus Control Center Project",
+    "homepage": "https://github.com/nexuscontrol/nexus-control-center",
+    "license": "GPL-3.0-or-later",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Utility",
+    "shortDescription": "Next-generation Linux control center",
+    "longDescription": "Nexus Control Center is a premium Linux desktop control center for performance, RGB, battery, storage and system intelligence.",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "files": {
+          "/usr/share/nexus-control-center/udev/99-nexus-omen.rules": "../packaging/udev/99-nexus-omen.rules"
+        },
+        "postInstallScript": "../packaging/scripts/postinstall.sh"
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3"],
+        "files": {
+          "/usr/share/nexus-control-center/udev/99-nexus-omen.rules": "../packaging/udev/99-nexus-omen.rules"
+        },
+        "postInstallScript": "../packaging/scripts/postinstall.sh"
+      }
+    }
+  }
+}
