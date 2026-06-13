@@ -1,0 +1,279 @@
+import { useState } from "react";
+import { motion } from "framer-motion";
+import {
+  BatteryCharging,
+  Heart,
+  Clock,
+  Plug,
+  Zap,
+  Activity,
+  Download,
+  TrendingDown,
+  Gauge,
+  Recycle,
+  Info,
+  AlertTriangle,
+  ShieldAlert,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
+import { PageHeader } from "@/components/shell/page-header";
+import { GlassCard } from "@/components/ui/glass";
+import { Button } from "@/components/ui/button";
+import { Badge, StatusDot } from "@/components/ui/badge";
+import { RingGauge } from "@/components/ui/ring-gauge";
+import { Meter } from "@/components/ui/progress";
+import { SectionTitle, StatRow } from "@/components/ui/section";
+import { RouteFallback } from "@/components/shell/route-fallback";
+import { CapabilityGate, CapabilityBadge } from "@/components/ui/capability-gate";
+import { useBattery, useCapability } from "@/hooks/use-telemetry";
+import { useBatteryIntel } from "@/hooks/use-battery-intel";
+import { stagger, fadeUp } from "@/lib/motion";
+import { cn } from "@/lib/cn";
+
+type Limit = "60" | "80" | "100";
+
+const SEV: Record<string, { icon: typeof Info; cls: string }> = {
+  info: { icon: Info, cls: "bg-info/12 text-info" },
+  warning: { icon: AlertTriangle, cls: "bg-warning/12 text-warning" },
+  critical: { icon: ShieldAlert, cls: "bg-danger/12 text-danger" },
+};
+
+export default function BatteryPage() {
+  const { report, history, exportReport } = useBatteryIntel();
+  const liveBattery = useBattery();
+  const batteryCap = useCapability("battery");
+  const [limit, setLimit] = useState<Limit>("80");
+
+  if (!report) return <RouteFallback />;
+
+  // Prefer the live charge % from the telemetry stream; fall back to report.
+  const charge = liveBattery?.chargePercent ?? report.chargePercent;
+  const charging = liveBattery?.status?.includes("charg") ?? report.charging;
+  const scoreTone = report.score > 85 ? "success" : report.score > 65 ? "warning" : "danger";
+
+  const degradationData = history.map((s) => ({
+    t: new Date(s.ts).toLocaleDateString([], { month: "short", day: "numeric" }),
+    wh: Number(s.energyFullWh.toFixed(1)),
+    health: Number(s.healthPercent.toFixed(1)),
+  }));
+
+  async function doExport() {
+    const md = await exportReport();
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "nexus-battery-report.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title="Battery Center"
+        description="Health analytics, lifespan prediction & smart recommendations."
+        actions={
+          <>
+            <Badge variant={scoreTone === "success" ? "success" : scoreTone === "warning" ? "warning" : "danger"} size="md">
+              <StatusDot tone={scoreTone} pulse={false} /> Score {report.score}/100
+            </Badge>
+            <Button variant="solid" size="md" onClick={doExport}>
+              <Download className="h-4 w-4" /> Export Report
+            </Button>
+          </>
+        }
+      />
+
+      <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+        {/* Hero row: charge + score + key stats */}
+        <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
+          <motion.div variants={fadeUp} className="lg:col-span-2">
+            <GlassCard padding="lg" className="relative h-full overflow-hidden">
+              <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-success/15 blur-3xl" />
+              <div className="flex flex-col gap-lg sm:flex-row sm:items-center">
+                <BatteryGlyph level={charge} charging={charging} />
+                <div className="flex-1">
+                  <p className="flex items-center gap-xs text-sm capitalize text-content-muted">
+                    {charging ? (<><Plug className="h-4 w-4 text-success" /> charging</>) : report.status}
+                  </p>
+                  <p className="font-display text-5xl font-semibold text-content">
+                    {charge.toFixed(0)}<span className="text-2xl text-content-muted">%</span>
+                  </p>
+                  <p className="text-sm text-content-muted">
+                    {report.runtimeMin != null
+                      ? `${Math.floor(report.runtimeMin / 60)}h ${report.runtimeMin % 60}m ${charging ? "to full" : "remaining"}`
+                      : `${report.model} · ${report.technology}`}
+                  </p>
+                  <div className="mt-md flex flex-wrap gap-lg">
+                    <MiniStat icon={Zap} label="Draw" value={`${report.powerDrawW.toFixed(1)} W`} />
+                    <MiniStat icon={Heart} label="Wear" value={`${report.wearPercent.toFixed(1)}%`} />
+                    <MiniStat icon={Recycle} label="Cycles" value={`${report.cycleCount}`} />
+                    <MiniStat icon={Activity} label="Voltage" value={`${report.voltageV.toFixed(2)} V`} />
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          <motion.div variants={fadeUp}>
+            <GlassCard padding="lg" className="flex h-full flex-col items-center justify-center text-center">
+              <RingGauge value={report.score} size={150} thickness={12} tone={scoreTone} label={`${report.score}`} sublabel="Health Score" />
+              <p className="mt-md text-sm font-semibold capitalize text-content">{report.grade}</p>
+              <p className="text-xs text-content-muted">{report.healthPercent.toFixed(1)}% of design capacity</p>
+            </GlassCard>
+          </motion.div>
+        </div>
+
+        {/* Health + lifespan + cycle analytics */}
+        <div className="mt-md grid grid-cols-1 gap-md lg:grid-cols-3">
+          <motion.div variants={fadeUp}>
+            <GlassCard padding="lg" className="h-full">
+              <SectionTitle title="Capacity Health" />
+              <div className="mb-md">
+                <div className="mb-xs flex items-end justify-between">
+                  <span className="font-display text-3xl font-semibold text-content">{report.healthPercent.toFixed(1)}%</span>
+                  <Badge variant={report.healthPercent > 80 ? "success" : "warning"}>{report.healthPercent > 80 ? "Good" : "Aging"}</Badge>
+                </div>
+                <Meter value={report.healthPercent} tone={report.healthPercent > 80 ? "success" : "warning"} />
+              </div>
+              <StatRow label="Design Capacity" value={`${report.designWh.toFixed(1)} Wh`} />
+              <StatRow label="Full Capacity" value={`${report.fullWh.toFixed(1)} Wh`} />
+              <StatRow label="Lost to wear" value={`${(report.designWh - report.fullWh).toFixed(1)} Wh`} tone="warning" />
+              <StatRow label="Current Energy" value={`${report.nowWh.toFixed(1)} Wh`} />
+            </GlassCard>
+          </motion.div>
+
+          <motion.div variants={fadeUp}>
+            <GlassCard padding="lg" className="h-full">
+              <SectionTitle title="Lifespan Prediction" />
+              <div className="grid place-items-center py-sm">
+                <Gauge className="h-10 w-10 text-accent" />
+                <p className="mt-sm font-display text-3xl font-semibold text-content">
+                  {report.lifespan.yearsRemaining.toFixed(1)}<span className="text-base text-content-muted"> yrs</span>
+                </p>
+                <p className="text-xs text-content-subtle">to 80% end-of-life</p>
+              </div>
+              <p className="mt-sm rounded-lg bg-surface-sunken/50 p-sm text-xs text-content-muted">{report.lifespan.summary}</p>
+              <StatRow label="Equivalent cycles" value={`~${report.lifespan.equivalentCycles}`} />
+              <StatRow label="Cycles to EOL" value={`~${report.lifespan.cyclesToEol}`} />
+            </GlassCard>
+          </motion.div>
+
+          <motion.div variants={fadeUp}>
+            <GlassCard padding="lg" className="h-full">
+              <SectionTitle title="Charge Limit" description="Cap charge to reduce wear" action={<CapabilityBadge status={batteryCap?.status} />} />
+              <CapabilityGate status={batteryCap?.status} className="space-y-sm">
+                {(["60", "80", "100"] as Limit[]).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLimit(l)}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg border p-md text-left transition-all",
+                      limit === l ? "border-accent/50 bg-accent/8" : "border-border hover:border-border-strong",
+                    )}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-content">{l}%</p>
+                      <p className="text-2xs text-content-subtle">{l === "60" ? "Max longevity" : l === "80" ? "Recommended" : "Max runtime"}</p>
+                    </div>
+                    {limit === l && <StatusDot tone="accent" pulse={false} />}
+                  </button>
+                ))}
+              </CapabilityGate>
+            </GlassCard>
+          </motion.div>
+        </div>
+
+        {/* Degradation history */}
+        <motion.div variants={fadeUp} className="mt-md">
+          <GlassCard padding="lg">
+            <SectionTitle
+              title="Capacity Degradation"
+              description={
+                report.degradation.samples > 1
+                  ? `Lost ${report.degradation.lostWh.toFixed(1)} Wh over ${report.degradation.spanDays.toFixed(0)} days`
+                  : "Building history — check back as samples accumulate"
+              }
+              action={<Badge variant="neutral"><TrendingDown className="h-3 w-3" /> {report.degradation.samples} samples</Badge>}
+            />
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={degradationData} margin={{ top: 6, right: 4, bottom: 0, left: -16 }}>
+                  <defs>
+                    <linearGradient id="deg" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="rgb(var(--color-accent))" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="rgb(var(--color-accent))" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="rgb(var(--color-border) / 0.5)" strokeDasharray="3 6" />
+                  <XAxis dataKey="t" tickLine={false} axisLine={false} tick={{ fill: "rgb(var(--color-text-subtle))", fontSize: 11 }} />
+                  <YAxis domain={["dataMin - 1", "dataMax + 1"]} tickLine={false} axisLine={false} width={44} tick={{ fill: "rgb(var(--color-text-subtle))", fontSize: 11 }} unit=" Wh" />
+                  <Tooltip contentStyle={{ background: "rgb(var(--color-surface-raised))", border: "1px solid rgb(var(--color-border))", borderRadius: 12, fontSize: 12, color: "rgb(var(--color-text))" }} />
+                  <Area type="monotone" dataKey="wh" name="Full capacity" stroke="rgb(var(--color-accent))" strokeWidth={2.5} fill="url(#deg)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        {/* Recommendations */}
+        <motion.div variants={fadeUp} className="mt-md">
+          <GlassCard padding="lg">
+            <SectionTitle title="Smart Recommendations" />
+            <div className="space-y-sm">
+              {report.recommendations.map((r, i) => {
+                const sev = SEV[r.severity] ?? SEV.info;
+                return (
+                  <div key={i} className="flex items-start gap-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+                    <div className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-md", sev.cls)}>
+                      <sev.icon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-content">{r.title}</p>
+                      <p className="text-xs text-content-muted">{r.detail}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
+        </motion.div>
+      </motion.div>
+    </div>
+  );
+}
+
+function BatteryGlyph({ level, charging }: { level: number; charging: boolean }) {
+  const tone = level > 50 ? "success" : level > 20 ? "warning" : "danger";
+  const color = `rgb(var(--color-${tone}))`;
+  return (
+    <div className="relative flex items-center">
+      <div className="relative h-28 w-52 rounded-2xl border-2 border-border-strong bg-surface-sunken p-1.5">
+        <motion.div className="h-full rounded-xl" style={{ background: `linear-gradient(180deg, ${color}, ${color}cc)` }}
+          initial={{ width: 0 }} animate={{ width: `${level}%` }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }} />
+        {charging && <BatteryCharging className="absolute inset-0 m-auto h-10 w-10 text-white drop-shadow" />}
+      </div>
+      <div className="h-10 w-1.5 rounded-r-md bg-border-strong" />
+    </div>
+  );
+}
+
+function MiniStat({ icon: Icon, label, value }: { icon: typeof Clock; label: string; value: string }) {
+  return (
+    <div>
+      <p className="flex items-center gap-xs text-2xs uppercase tracking-wider text-content-subtle">
+        <Icon className="h-3 w-3" /> {label}
+      </p>
+      <p className="text-sm font-semibold text-content">{value}</p>
+    </div>
+  );
+}
