@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   BASE
+   ============================================================================= */
+@layer base {
+  * {
+    border-color: rgb(var(--color-border) / 1);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    color: rgb(var(--color-text) / 1);
+    background-color: rgb(var(--color-canvas) / 1);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    overflow: hidden; /* app shell owns scrolling */
+    user-select: none;
+  }
+
+  /* The theme transition: instant swap of structural colors, but soft enough to
+     feel intentional rather than jarring. Applied only to color/shadow props. */
+  :root.theme-animating *,
+  :root.theme-animating *::before,
+  :root.theme-animating *::after {
+    transition:
+      background-color var(--duration-base) var(--ease-smooth),
+      border-color var(--duration-base) var(--ease-smooth),
+      color var(--duration-base) var(--ease-smooth),
+      box-shadow var(--duration-base) var(--ease-smooth) !important;
+  }
+
+  ::selection {
+    background: rgb(var(--color-accent) / 0.35);
+    color: rgb(var(--color-text) / 1);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-accent) / 0.7);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  /* Custom scrollbars (premium, theme-aware) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-border-strong) / 0.6);
+    border-radius: var(--radius-full);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-accent) / 0.5);
+    background-clip: content-box;
+  }
+}
+
+/* =============================================================================
+   COMPONENT UTILITIES — the Glass Engine
+   ============================================================================= */
+@layer components {
+  /* Base glass material. Layers: tint + blur + saturate + inner highlight. */
+  .glass {
+    background: rgb(var(--glass-bg) / var(--glass-bg-opacity));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur))
+      saturate(var(--glass-saturate));
+    border: 1px solid rgb(var(--glass-bg) / var(--glass-border-opacity));
+    box-shadow:
+      var(--elevation-2),
+      var(--shadow-inset);
+    position: relative;
+  }
+
+  .glass-strong {
+    backdrop-filter: blur(var(--glass-blur-strong))
+      saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur-strong))
+      saturate(var(--glass-saturate));
+  }
+
+  /* Top-edge specular highlight that sells the "pane of glass" illusion. */
+  .glass-edge::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      180deg,
+      rgb(var(--glass-bg) / var(--glass-highlight-opacity)),
+      transparent 40%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Subtle film grain for material realism (uses CSS noise, no image). */
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  /* Brand gradient text + fills */
+  .text-gradient {
+    background: linear-gradient(
+      120deg,
+      rgb(var(--color-accent) / 1),
+      rgb(var(--color-iris) / 1)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-brand-gradient {
+    background: linear-gradient(
+      120deg,
+      rgb(var(--color-accent) / 1),
+      rgb(var(--color-iris) / 1)
+    );
+  }
+
+  /* Hairline ring used on interactive surfaces */
+  .ring-hairline {
+    box-shadow: 0 0 0 1px rgb(var(--color-border) / 1);
+  }
+}
+
+/* =============================================================================
+   UTILITIES
+   ============================================================================= */
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  /* Skeleton shimmer used by loading states */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgb(var(--color-surface-raised) / 1);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--color-text) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.8s infinite;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

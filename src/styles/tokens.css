@@ -1,0 +1,337 @@
+/* =============================================================================
+   NEXUS DESIGN TOKENS
+   Single source of truth for the entire visual language.
+
+   Colors are stored as space-separated RGB channels ("124 92 255") so Tailwind's
+   `rgb(var(--token) / <alpha-value>)` pattern can apply opacity modifiers.
+   Themes only ever override these variables — never component CSS.
+   ============================================================================= */
+
+:root {
+  /* ----- Typography scale (fluid-ready, rem based) ----- */
+  --font-sans: "Inter", "SF Pro Display", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
+  --font-display: "Clash Display", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
+
+  --text-2xs: 0.6875rem; /* 11 */
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.8125rem; /* 13 */
+  --text-base: 0.875rem; /* 14 — desktop default */
+  --text-lg: 1rem; /* 16 */
+  --text-xl: 1.125rem; /* 18 */
+  --text-2xl: 1.375rem; /* 22 */
+  --text-3xl: 1.75rem; /* 28 */
+  --text-4xl: 2.25rem; /* 36 */
+  --text-5xl: 3rem; /* 48 */
+
+  /* ----- Spacing scale (8pt grid with sub-steps) ----- */
+  --space-2xs: 0.25rem; /* 4  */
+  --space-xs: 0.5rem; /* 8  */
+  --space-sm: 0.75rem; /* 12 */
+  --space-md: 1rem; /* 16 */
+  --space-lg: 1.5rem; /* 24 */
+  --space-xl: 2rem; /* 32 */
+  --space-2xl: 3rem; /* 48 */
+  --space-3xl: 4rem; /* 64 */
+
+  /* ----- Radius scale ----- */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.75rem;
+  --radius-full: 9999px;
+
+  /* ----- Motion system ----- */
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 420ms;
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1); /* premium ease-out */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* subtle overshoot */
+  --ease-snap: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ----- Layout primitives ----- */
+  --sidebar-width: 264px;
+  --sidebar-width-collapsed: 76px;
+  --topbar-height: 60px;
+  --grid-size: 44px;
+
+  /* ----- Glass engine ----- */
+  --glass-blur: 18px;
+  --glass-blur-strong: 32px;
+  --glass-saturate: 160%;
+  --glass-noise-opacity: 0.025;
+
+  /* z-index ladder */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 100;
+  --z-sidebar: 200;
+  --z-topbar: 210;
+  --z-overlay: 900;
+  --z-modal: 1000;
+  --z-palette: 1100;
+  --z-toast: 1200;
+}
+
+/* =============================================================================
+   THEME: DARK  (default — deep-space command center)
+   ============================================================================= */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: 8 10 18;
+  --color-surface: 16 19 31;
+  --color-surface-raised: 23 27 42;
+  --color-surface-sunken: 11 13 22;
+
+  --color-border: 38 44 64;
+  --color-border-strong: 58 66 92;
+  --color-border-subtle: 28 33 48;
+
+  --color-text: 234 238 248;
+  --color-text-muted: 154 162 186;
+  --color-text-subtle: 104 112 138;
+  --color-text-inverted: 10 12 20;
+
+  --color-accent: 124 92 255; /* electric violet */
+  --color-accent-soft: 92 70 200;
+  --color-accent-strong: 150 120 255;
+  --color-accent-contrast: 255 255 255;
+  --color-iris: 0 209 255; /* cyan partner for gradients */
+
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+  --color-info: 96 165 250;
+
+  /* glass material */
+  --glass-bg: 255 255 255;
+  --glass-bg-opacity: 0.04;
+  --glass-border-opacity: 0.08;
+  --glass-highlight-opacity: 0.06;
+
+  /* elevation (layered ambient + key light) */
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 1px 1px rgb(0 0 0 / 0.3);
+  --elevation-2: 0 4px 12px rgb(0 0 0 / 0.45), 0 2px 4px rgb(0 0 0 / 0.3);
+  --elevation-3: 0 12px 32px rgb(0 0 0 / 0.5), 0 4px 8px rgb(0 0 0 / 0.35);
+  --elevation-4: 0 24px 64px rgb(0 0 0 / 0.55), 0 8px 16px rgb(0 0 0 / 0.4);
+  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.35);
+  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.55);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.05);
+
+  /* ambient background gradients */
+  --bg-aurora-a: 124 92 255;
+  --bg-aurora-b: 0 209 255;
+  --bg-aurora-c: 236 72 153;
+}
+
+/* =============================================================================
+   THEME: LIGHT
+   ============================================================================= */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: 244 246 251;
+  --color-surface: 255 255 255;
+  --color-surface-raised: 255 255 255;
+  --color-surface-sunken: 237 240 247;
+
+  --color-border: 222 227 238;
+  --color-border-strong: 200 207 222;
+  --color-border-subtle: 233 236 244;
+
+  --color-text: 22 26 38;
+  --color-text-muted: 90 98 120;
+  --color-text-subtle: 140 148 168;
+  --color-text-inverted: 255 255 255;
+
+  --color-accent: 99 67 235;
+  --color-accent-soft: 124 92 255;
+  --color-accent-strong: 80 50 210;
+  --color-accent-contrast: 255 255 255;
+  --color-iris: 14 165 233;
+
+  --color-success: 16 185 129;
+  --color-warning: 217 119 6;
+  --color-danger: 220 38 38;
+  --color-info: 37 99 235;
+
+  --glass-bg: 255 255 255;
+  --glass-bg-opacity: 0.55;
+  --glass-border-opacity: 0.6;
+  --glass-highlight-opacity: 0.9;
+
+  --elevation-1: 0 1px 2px rgb(20 30 60 / 0.06), 0 1px 1px rgb(20 30 60 / 0.04);
+  --elevation-2: 0 6px 16px rgb(20 30 60 / 0.08), 0 2px 4px rgb(20 30 60 / 0.05);
+  --elevation-3: 0 14px 38px rgb(20 30 60 / 0.1), 0 4px 8px rgb(20 30 60 / 0.06);
+  --elevation-4: 0 28px 70px rgb(20 30 60 / 0.14), 0 8px 16px rgb(20 30 60 / 0.08);
+  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.22);
+  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.35);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.8);
+
+  --bg-aurora-a: 124 92 255;
+  --bg-aurora-b: 14 165 233;
+  --bg-aurora-c: 236 72 153;
+}
+
+/* =============================================================================
+   THEME: OLED  (true black for max contrast + power saving on OLED panels)
+   ============================================================================= */
+[data-theme="oled"] {
+  color-scheme: dark;
+
+  --color-canvas: 0 0 0;
+  --color-surface: 8 8 11;
+  --color-surface-raised: 14 14 18;
+  --color-surface-sunken: 0 0 0;
+
+  --color-border: 28 28 34;
+  --color-border-strong: 46 46 56;
+  --color-border-subtle: 18 18 22;
+
+  --color-text: 244 244 248;
+  --color-text-muted: 150 150 162;
+  --color-text-subtle: 96 96 108;
+  --color-text-inverted: 0 0 0;
+
+  --color-accent: 130 100 255;
+  --color-accent-soft: 96 72 210;
+  --color-accent-strong: 160 130 255;
+  --color-accent-contrast: 255 255 255;
+  --color-iris: 0 224 255;
+
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+  --color-info: 96 165 250;
+
+  --glass-bg: 255 255 255;
+  --glass-bg-opacity: 0.03;
+  --glass-border-opacity: 0.07;
+  --glass-highlight-opacity: 0.05;
+
+  --elevation-1: 0 0 0 1px rgb(255 255 255 / 0.02);
+  --elevation-2: 0 4px 16px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.03);
+  --elevation-3: 0 12px 40px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --elevation-4: 0 24px 70px rgb(0 0 0 / 0.95), 0 0 0 1px rgb(255 255 255 / 0.05);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.45);
+  --shadow-glow-strong: 0 0 56px rgb(var(--color-accent) / 0.65);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.04);
+
+  --bg-aurora-a: 130 100 255;
+  --bg-aurora-b: 0 224 255;
+  --bg-aurora-c: 236 72 153;
+}
+
+/* =============================================================================
+   THEME: CYBERPUNK  (neon magenta + acid yellow on deep violet)
+   ============================================================================= */
+[data-theme="cyberpunk"] {
+  color-scheme: dark;
+
+  --color-canvas: 13 6 26;
+  --color-surface: 22 11 41;
+  --color-surface-raised: 30 15 54;
+  --color-surface-sunken: 16 8 32;
+
+  --color-border: 86 30 120;
+  --color-border-strong: 130 50 170;
+  --color-border-subtle: 54 22 84;
+
+  --color-text: 245 233 255;
+  --color-text-muted: 196 150 230;
+  --color-text-subtle: 150 110 185;
+  --color-text-inverted: 13 6 26;
+
+  --color-accent: 255 45 149; /* hot magenta */
+  --color-accent-soft: 210 40 130;
+  --color-accent-strong: 255 90 175;
+  --color-accent-contrast: 13 6 26;
+  --color-iris: 250 224 66; /* acid yellow */
+
+  --color-success: 57 255 176;
+  --color-warning: 250 224 66;
+  --color-danger: 255 60 90;
+  --color-info: 0 224 255;
+
+  --glass-bg: 255 60 170;
+  --glass-bg-opacity: 0.05;
+  --glass-border-opacity: 0.16;
+  --glass-highlight-opacity: 0.1;
+
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elevation-2: 0 4px 16px rgb(120 0 80 / 0.4), 0 0 0 1px rgb(255 45 149 / 0.08);
+  --elevation-3: 0 12px 40px rgb(120 0 80 / 0.5), 0 0 0 1px rgb(255 45 149 / 0.12);
+  --elevation-4: 0 24px 70px rgb(120 0 80 / 0.55), 0 0 0 1px rgb(255 45 149 / 0.16);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.6);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.85);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.06);
+
+  --bg-aurora-a: 255 45 149;
+  --bg-aurora-b: 0 224 255;
+  --bg-aurora-c: 250 224 66;
+}
+
+/* =============================================================================
+   THEME: NEXUS RGB  (chroma-cycling accent — driven by --rgb-hue from JS/anim)
+   ============================================================================= */
+[data-theme="nexus-rgb"] {
+  color-scheme: dark;
+  --rgb-hue: 270;
+
+  --color-canvas: 6 7 14;
+  --color-surface: 14 16 27;
+  --color-surface-raised: 20 23 38;
+  --color-surface-sunken: 9 10 19;
+
+  --color-border: 40 44 66;
+  --color-border-strong: 64 70 100;
+  --color-border-subtle: 28 31 48;
+
+  --color-text: 236 240 250;
+  --color-text-muted: 158 166 190;
+  --color-text-subtle: 106 114 140;
+  --color-text-inverted: 6 7 14;
+
+  /* Accent is resolved from the animated hue; see tokens animation in base.css */
+  --color-accent: 138 110 255;
+  --color-accent-soft: 104 84 210;
+  --color-accent-strong: 168 140 255;
+  --color-accent-contrast: 255 255 255;
+  --color-iris: 0 224 255;
+
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+  --color-info: 96 165 250;
+
+  --glass-bg: 255 255 255;
+  --glass-bg-opacity: 0.045;
+  --glass-border-opacity: 0.1;
+  --glass-highlight-opacity: 0.07;
+
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --elevation-2: 0 4px 14px rgb(0 0 0 / 0.45), 0 2px 4px rgb(0 0 0 / 0.3);
+  --elevation-3: 0 12px 36px rgb(0 0 0 / 0.5), 0 4px 8px rgb(0 0 0 / 0.35);
+  --elevation-4: 0 24px 66px rgb(0 0 0 / 0.55), 0 8px 16px rgb(0 0 0 / 0.4);
+  --shadow-glow: 0 0 30px rgb(var(--color-accent) / 0.5);
+  --shadow-glow-strong: 0 0 64px rgb(var(--color-accent) / 0.7);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.05);
+
+  --bg-aurora-a: 138 110 255;
+  --bg-aurora-b: 0 224 255;
+  --bg-aurora-c: 236 72 153;
+}
+
+/* Accessibility: honor reduced-motion at the token layer. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 1ms;
+    --duration-base: 1ms;
+    --duration-slow: 1ms;
+  }
+}
