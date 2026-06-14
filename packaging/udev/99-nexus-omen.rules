@@ -1,0 +1,24 @@
+# Nexus Control Center — scoped hardware access for OMEN LED + fan control.
+#
+# WHY THIS EXISTS (audit finding H4):
+#   RGB and fan control write to root-owned sysfs attributes under
+#   /sys/devices/platform/omen-rgb-keyboard/. The previously recommended fix —
+#   `sudo usermod -aG input $USER` — grants read access to EVERY input device
+#   (keyboard, mouse, touchpad) for that user: a keylogging-class attack surface
+#   that is wildly broader than what this app needs.
+#
+#   This rule instead grants write access to ONLY the OMEN RGB and fan
+#   attributes, to members of a dedicated, purpose-built `nexus` group. A user
+#   added to `nexus` can control their LEDs and fans and nothing else.
+#
+# INSTALL (done automatically by the deb/rpm/AppImage post-install, or manually):
+#   sudo groupadd -f nexus
+#   sudo install -m 0644 99-nexus-omen.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=platform --attr-match=KERNEL=omen-rgb-keyboard
+#   sudo usermod -aG nexus "$USER"     # then log out and back in
+#
+# Power profiles need NO group: they go through power-profiles-daemon/polkit.
+
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="omen-rgb-keyboard", \
+  RUN+="/bin/sh -c 'for d in rgb_zones fan; do p=/sys/devices/platform/omen-rgb-keyboard/$d; [ -e \"$p\" ] && chgrp -R nexus \"$p\" 2>/dev/null && chmod -R g+rw \"$p\" 2>/dev/null; done'"

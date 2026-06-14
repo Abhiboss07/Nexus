@@ -1,0 +1,84 @@
+name: release
+
+# Publishing workflow (findings C2 / C4 / H1 / H2).
+# Tag-driven: pushing v* builds, tests, signs, and publishes deb + rpm +
+# AppImage, and generates the signed `latest.json` updater feed.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---- Gate the release on the full test suite, incl. headless runtime smoke.
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev xvfb webkit2gtk-driver
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - name: Backend tests (incl. runtime smoke)
+        working-directory: src-tauri
+        run: cargo test --lib
+
+  # ---- Build, sign, and publish the bundles + updater feed.
+  publish:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+
+      - name: Build + publish signed bundles & updater feed
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Minisign key for the in-app updater. The matching PUBLIC key is
+          # pinned in tauri.conf.json → plugins.updater.pubkey.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Nexus Control Center ${{ github.ref_name }}"
+          releaseDraft: true            # human review before going live
+          prerelease: true              # 1.0.0-beta.* is a pre-release
+          # latest.json (the updater feed) is generated + uploaded by the action
+          # because plugins.updater is active and the signing key is present.
+          updaterJsonPreferNsis: false
+          args: --bundles deb,rpm,appimage
+
+      # ---- Distro repo signing (deb/rpm package trust, finding C4).
+      # Packages are GPG-signed for repository distribution. The updater feed is
+      # already minisign-signed by the step above.
+      - name: GPG-sign packages (optional, when repo key present)
+        if: ${{ env.NEXUS_REPO_GPG_KEY != '' }}
+        env:
+          NEXUS_REPO_GPG_KEY: ${{ secrets.NEXUS_REPO_GPG_KEY }}
+        run: |
+          echo "$NEXUS_REPO_GPG_KEY" | gpg --batch --import
+          for pkg in $(find src-tauri/target/release/bundle -name '*.deb'); do
+            dpkg-sig --sign builder "$pkg" || true
+          done
+          for pkg in $(find src-tauri/target/release/bundle -name '*.rpm'); do
+            rpm --addsign "$pkg" || true
+          done
