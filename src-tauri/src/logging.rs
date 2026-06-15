@@ -256,6 +256,12 @@ pub fn install_signal_handlers() {
                 _ => "termination signal",
             };
             shutdown_with(&format!("Clean shutdown on {name}"));
+            // Hard exit: the marker is already removed (a clean shutdown), so this
+            // is correct. It bypasses GTK/webkit's orderly EGL teardown, which is
+            // why a cosmetic `Gdk-WARNING: eglMakeCurrent failed` can print as the
+            // process dies on Ctrl+C/SIGTERM — the OS reclaims the GPU context and
+            // all memory, so there is no crash, leak, or frozen window. The tray
+            // "Quit" path (app.exit) does the orderly teardown instead.
             std::process::exit(0);
         });
     }
