@@ -7,8 +7,8 @@ use std::sync::Arc;
 use super::omen::{OmenRgbController, OMEN_RGB_BASE};
 use super::openrgb::OpenRgbController;
 use super::profiles::{presets, ProfileStore, RgbProfile};
-use crate::control::safe_writer::RealFs;
 use crate::control::capabilities::RgbCapability;
+use crate::control::safe_writer::RealFs;
 use crate::control::traits::{
     ControlError, ControlOutcome, ControlResult, RgbController, RgbRequest, RgbState,
 };
@@ -24,16 +24,21 @@ impl RgbEngine {
     pub fn new(caps: &RgbCapability, vendor: Vendor) -> Self {
         let controller: Option<Box<dyn RgbController>> = if caps.status.controllable {
             match caps.status.driver.as_str() {
-                "omen-rgb-keyboard" => {
-                    Some(Box::new(OmenRgbController::new(vendor, OMEN_RGB_BASE, Arc::new(RealFs))))
-                }
+                "omen-rgb-keyboard" => Some(Box::new(OmenRgbController::new(
+                    vendor,
+                    OMEN_RGB_BASE,
+                    Arc::new(RealFs),
+                ))),
                 "openrgb" => Some(Box::new(OpenRgbController::new(vendor))),
                 _ => None,
             }
         } else {
             None
         };
-        Self { controller, store: ProfileStore::new() }
+        Self {
+            controller,
+            store: ProfileStore::new(),
+        }
     }
 
     pub fn has_controller(&self) -> bool {
@@ -58,8 +63,12 @@ impl RgbEngine {
         self.controller.as_ref().and_then(|c| c.state())
     }
 
+    #[allow(dead_code)]
     pub fn zone_count(&self) -> u32 {
-        self.controller.as_ref().map(|c| c.zone_count()).unwrap_or(0)
+        self.controller
+            .as_ref()
+            .map(|c| c.zone_count())
+            .unwrap_or(0)
     }
 
     pub fn presets(&self) -> Vec<RgbProfile> {

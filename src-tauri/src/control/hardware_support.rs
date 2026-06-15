@@ -135,7 +135,11 @@ impl WriteGate {
             if !rgb_ok {
                 notes.push(format!(
                     "RGB writes disabled: platform '{}' is not on the validated allowlist {:?}.",
-                    if input.rgb_platform.is_empty() { "<none>" } else { input.rgb_platform },
+                    if input.rgb_platform.is_empty() {
+                        "<none>"
+                    } else {
+                        input.rgb_platform
+                    },
                     VALIDATED_RGB_PLATFORMS
                 ));
             }
@@ -147,7 +151,12 @@ impl WriteGate {
             ));
         }
 
-        WriteGate { tier, fan_writes: fan_ok, rgb_writes: rgb_ok, notes }
+        WriteGate {
+            tier,
+            fan_writes: fan_ok,
+            rgb_writes: rgb_ok,
+            notes,
+        }
     }
 
     /// Enforce the gate on the capability set so the **UI also hides** controls
@@ -191,9 +200,16 @@ impl CompatibilityReport {
     ) -> Self {
         let summary = match gate.tier {
             SupportTier::Validated => "Reference hardware — all supported controls enabled.".into(),
-            SupportTier::Compatible => "Compatible hardware — controls enabled through validated interfaces.".into(),
-            SupportTier::Unknown => "Recognized vendor without a validated control interface — running read-only.".into(),
-            SupportTier::Unsupported => "Unsupported hardware — running in read-only telemetry mode.".into(),
+            SupportTier::Compatible => {
+                "Compatible hardware — controls enabled through validated interfaces.".into()
+            }
+            SupportTier::Unknown => {
+                "Recognized vendor without a validated control interface — running read-only."
+                    .into()
+            }
+            SupportTier::Unsupported => {
+                "Unsupported hardware — running in read-only telemetry mode.".into()
+            }
         };
         CompatibilityReport {
             tier: gate.tier,

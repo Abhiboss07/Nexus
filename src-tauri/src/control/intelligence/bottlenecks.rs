@@ -35,21 +35,56 @@ pub fn detect(snapshot: &Snapshot) -> BottleneckReport {
 
     // VRAM / memory exhaustion take priority — they cause hard stalls.
     if vram >= 92.0 {
-        return report("vram", conf(vram - 92.0, 8.0), "Video memory is exhausted, forcing texture eviction.", vec![Evidence::new("VRAM", format!("{vram:.0}%"), "92%")]);
+        return report(
+            "vram",
+            conf(vram - 92.0, 8.0),
+            "Video memory is exhausted, forcing texture eviction.",
+            vec![Evidence::new("VRAM", format!("{vram:.0}%"), "92%")],
+        );
     }
     if mem >= 92.0 {
-        return report("memory", conf(mem - 92.0, 8.0), "System RAM is exhausted; swapping will cause stalls.", vec![Evidence::new("RAM", format!("{mem:.0}%"), "92%")]);
+        return report(
+            "memory",
+            conf(mem - 92.0, 8.0),
+            "System RAM is exhausted; swapping will cause stalls.",
+            vec![Evidence::new("RAM", format!("{mem:.0}%"), "92%")],
+        );
     }
 
     // Compute-bound: whichever of CPU/GPU is pegged while the other has headroom.
     if gpu >= 92.0 && cpu < 80.0 {
-        return report("gpu", conf(gpu - cpu, 40.0), "GPU is saturated while the CPU has headroom — GPU-bound.", vec![Evidence::new("GPU", format!("{gpu:.0}%"), "92%"), Evidence::new("CPU", format!("{cpu:.0}%"), "80%")]);
+        return report(
+            "gpu",
+            conf(gpu - cpu, 40.0),
+            "GPU is saturated while the CPU has headroom — GPU-bound.",
+            vec![
+                Evidence::new("GPU", format!("{gpu:.0}%"), "92%"),
+                Evidence::new("CPU", format!("{cpu:.0}%"), "80%"),
+            ],
+        );
     }
     if cpu >= 92.0 && gpu < 70.0 {
-        return report("cpu", conf(cpu - gpu, 40.0), "CPU is saturated while the GPU is underused — CPU-bound.", vec![Evidence::new("CPU", format!("{cpu:.0}%"), "92%"), Evidence::new("GPU", format!("{gpu:.0}%"), "70%")]);
+        return report(
+            "cpu",
+            conf(cpu - gpu, 40.0),
+            "CPU is saturated while the GPU is underused — CPU-bound.",
+            vec![
+                Evidence::new("CPU", format!("{cpu:.0}%"), "92%"),
+                Evidence::new("GPU", format!("{gpu:.0}%"), "70%"),
+            ],
+        );
     }
     if disk >= 400.0 && cpu < 70.0 && gpu < 70.0 {
-        return report("disk", conf(disk - 400.0, 400.0), "Heavy disk I/O with idle CPU/GPU — storage-bound.", vec![Evidence::new("Disk I/O", format!("{disk:.0} MB/s"), "400 MB/s")]);
+        return report(
+            "disk",
+            conf(disk - 400.0, 400.0),
+            "Heavy disk I/O with idle CPU/GPU — storage-bound.",
+            vec![Evidence::new(
+                "Disk I/O",
+                format!("{disk:.0} MB/s"),
+                "400 MB/s",
+            )],
+        );
     }
 
     report(
@@ -64,11 +99,18 @@ pub fn detect(snapshot: &Snapshot) -> BottleneckReport {
 }
 
 fn conf(margin: f32, span: f32) -> u8 {
-    (55.0 + (margin / span).clamp(0.0, 1.0) * 40.0).clamp(40.0, 98.0).round() as u8
+    (55.0 + (margin / span).clamp(0.0, 1.0) * 40.0)
+        .clamp(40.0, 98.0)
+        .round() as u8
 }
 
 fn report(b: &str, confidence: u8, detail: &str, evidence: Vec<Evidence>) -> BottleneckReport {
-    BottleneckReport { bottleneck: b.into(), confidence, detail: detail.into(), evidence }
+    BottleneckReport {
+        bottleneck: b.into(),
+        confidence,
+        detail: detail.into(),
+        evidence,
+    }
 }
 
 #[cfg(test)]
@@ -80,24 +122,44 @@ mod tests {
         let mut s = Snapshot::default();
         s.cpu.usage = cpu;
         s.memory.usage = mem;
-        s.gpu = Some(GpuTelemetry { usage: gpu, vram_used_mb: vram_used, vram_total_mb: vram_total, ..Default::default() });
+        s.gpu = Some(GpuTelemetry {
+            usage: gpu,
+            vram_used_mb: vram_used,
+            vram_total_mb: vram_total,
+            ..Default::default()
+        });
         s
     }
 
     #[test]
     fn detects_gpu_and_cpu_bound() {
-        assert_eq!(detect(&snap(40.0, 98.0, 50.0, 1000, 6000)).bottleneck, "gpu");
-        assert_eq!(detect(&snap(98.0, 30.0, 50.0, 1000, 6000)).bottleneck, "cpu");
+        assert_eq!(
+            detect(&snap(40.0, 98.0, 50.0, 1000, 6000)).bottleneck,
+            "gpu"
+        );
+        assert_eq!(
+            detect(&snap(98.0, 30.0, 50.0, 1000, 6000)).bottleneck,
+            "cpu"
+        );
     }
 
     #[test]
     fn vram_and_memory_take_priority() {
-        assert_eq!(detect(&snap(99.0, 99.0, 50.0, 5900, 6000)).bottleneck, "vram");
-        assert_eq!(detect(&snap(50.0, 50.0, 96.0, 1000, 6000)).bottleneck, "memory");
+        assert_eq!(
+            detect(&snap(99.0, 99.0, 50.0, 5900, 6000)).bottleneck,
+            "vram"
+        );
+        assert_eq!(
+            detect(&snap(50.0, 50.0, 96.0, 1000, 6000)).bottleneck,
+            "memory"
+        );
     }
 
     #[test]
     fn balanced_when_no_pressure() {
-        assert_eq!(detect(&snap(40.0, 40.0, 40.0, 1000, 6000)).bottleneck, "none");
+        assert_eq!(
+            detect(&snap(40.0, 40.0, 40.0, 1000, 6000)).bottleneck,
+            "none"
+        );
     }
 }

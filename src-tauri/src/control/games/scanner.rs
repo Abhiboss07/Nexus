@@ -86,7 +86,9 @@ fn steam_roots() -> Vec<String> {
     for c in candidates {
         if std::path::Path::new(&format!("{c}/steamapps")).exists() {
             // canonicalize to dedupe symlinks
-            let real = std::fs::canonicalize(&c).map(|p| p.to_string_lossy().to_string()).unwrap_or(c);
+            let real = std::fs::canonicalize(&c)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or(c);
             if !roots.contains(&real) {
                 roots.push(real);
             }
@@ -124,22 +126,35 @@ fn scan_steam() -> Vec<Game> {
     let mut games = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for dir in steam_library_dirs() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let path = e.path();
-            let fname = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-            if !fname.starts_with("appmanifest_") || path.extension().and_then(|s| s.to_str()) != Some("acf") {
+            let fname = path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !fname.starts_with("appmanifest_")
+                || path.extension().and_then(|s| s.to_str()) != Some("acf")
+            {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             let app_id = vdf_value(&text, "appid").unwrap_or_default();
             if app_id.is_empty() || !seen.insert(app_id.clone()) {
                 continue;
             }
             let name = vdf_value(&text, "name").unwrap_or_else(|| format!("App {app_id}"));
             let install_dir = vdf_value(&text, "installdir");
-            let size_bytes = vdf_value(&text, "SizeOnDisk").and_then(|s| s.parse().ok()).unwrap_or(0);
-            let last_played = vdf_value(&text, "LastPlayed").and_then(|s| s.parse().ok()).filter(|&v| v > 0);
+            let size_bytes = vdf_value(&text, "SizeOnDisk")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let last_played = vdf_value(&text, "LastPlayed")
+                .and_then(|s| s.parse().ok())
+                .filter(|&v| v > 0);
             games.push(Game {
                 id: format!("steam:{app_id}"),
                 is_tool: is_tool(&name, &app_id),
@@ -166,9 +181,16 @@ fn scan_lutris() -> Vec<Game> {
             if p.extension().and_then(|s| s.to_str()) != Some("yml") {
                 continue;
             }
-            let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
             // filename is "<slug>-<id>.yml"; use the slug as a friendly name.
-            let name = stem.rsplit_once('-').map(|(s, _)| s).unwrap_or(&stem).replace('-', " ");
+            let name = stem
+                .rsplit_once('-')
+                .map(|(s, _)| s)
+                .unwrap_or(&stem)
+                .replace('-', " ");
             games.push(Game {
                 id: format!("lutris:{stem}"),
                 name,
@@ -191,7 +213,11 @@ pub fn scan(include_tools: bool) -> Vec<Game> {
     if !include_tools {
         games.retain(|g| !g.is_tool);
     }
-    games.sort_by(|a, b| b.last_played.cmp(&a.last_played).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    games.sort_by(|a, b| {
+        b.last_played
+            .cmp(&a.last_played)
+            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     games
 }
 

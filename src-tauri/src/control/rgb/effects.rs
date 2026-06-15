@@ -4,8 +4,17 @@
 
 /// The eleven supported effects, in UI order.
 pub const EFFECTS: [&str; 11] = [
-    "static", "breathing", "rainbow", "wave", "pulse", "chase", "sparkle",
-    "candle", "aurora", "disco", "gradient",
+    "static",
+    "breathing",
+    "rainbow",
+    "wave",
+    "pulse",
+    "chase",
+    "sparkle",
+    "candle",
+    "aurora",
+    "disco",
+    "gradient",
 ];
 
 /// Whether `name` is a known effect.
@@ -16,7 +25,10 @@ pub fn is_valid(name: &str) -> bool {
 /// Whether the effect uses a single base color the user picks (vs. generating
 /// its own palette). Color-based effects get the base color written first.
 pub fn uses_base_color(effect: &str) -> bool {
-    matches!(effect, "static" | "breathing" | "pulse" | "wave" | "candle" | "gradient")
+    matches!(
+        effect,
+        "static" | "breathing" | "pulse" | "wave" | "candle" | "gradient"
+    )
 }
 
 /// Map a UI speed (0–100) to the driver's `animation_speed` range (1–10).

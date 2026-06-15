@@ -28,13 +28,20 @@ pub struct RgbProfile {
 impl RgbProfile {
     pub fn validate(&self) -> Result<(), ControlError> {
         if self.name.trim().is_empty() {
-            return Err(ControlError::InvalidParameter("profile name required".into()));
+            return Err(ControlError::InvalidParameter(
+                "profile name required".into(),
+            ));
         }
         if !effects::is_valid(&self.effect) {
-            return Err(ControlError::InvalidParameter(format!("unknown effect '{}'", self.effect)));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown effect '{}'",
+                self.effect
+            )));
         }
         if self.brightness > 100 || self.speed > 100 {
-            return Err(ControlError::InvalidParameter("brightness/speed must be 0–100".into()));
+            return Err(ControlError::InvalidParameter(
+                "brightness/speed must be 0–100".into(),
+            ));
         }
         Ok(())
     }
@@ -75,7 +82,13 @@ pub fn presets() -> Vec<RgbProfile> {
 /// Sanitize a profile name into a safe filename stem.
 fn safe_stem(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -114,16 +127,15 @@ impl ProfileStore {
                 }
             }
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         out
     }
 
     pub fn save(&self, profile: &RgbProfile) -> Result<(), ControlError> {
         profile.validate()?;
-        let json = serde_json::to_string_pretty(profile)
-            .map_err(|e| ControlError::Io(e.to_string()))?;
-        fs::write(self.path_for(&profile.name), json)
-            .map_err(|e| ControlError::Io(e.to_string()))
+        let json =
+            serde_json::to_string_pretty(profile).map_err(|e| ControlError::Io(e.to_string()))?;
+        fs::write(self.path_for(&profile.name), json).map_err(|e| ControlError::Io(e.to_string()))
     }
 
     pub fn load(&self, name: &str) -> Result<RgbProfile, ControlError> {
@@ -171,7 +183,14 @@ mod tests {
 
     #[test]
     fn profile_to_request_clamps() {
-        let p = RgbProfile { name: "x".into(), effect: "static".into(), hue: 400, brightness: 100, speed: 50, zones: vec![] };
+        let p = RgbProfile {
+            name: "x".into(),
+            effect: "static".into(),
+            hue: 400,
+            brightness: 100,
+            speed: 50,
+            zones: vec![],
+        };
         let r = p.to_request();
         assert_eq!(r.hue, 40);
         assert_eq!(r.effect, "static");
@@ -179,9 +198,23 @@ mod tests {
 
     #[test]
     fn validate_rejects_bad() {
-        let bad = RgbProfile { name: "".into(), effect: "static".into(), hue: 0, brightness: 0, speed: 0, zones: vec![] };
+        let bad = RgbProfile {
+            name: "".into(),
+            effect: "static".into(),
+            hue: 0,
+            brightness: 0,
+            speed: 0,
+            zones: vec![],
+        };
         assert!(bad.validate().is_err());
-        let bad2 = RgbProfile { name: "ok".into(), effect: "lava".into(), hue: 0, brightness: 0, speed: 0, zones: vec![] };
+        let bad2 = RgbProfile {
+            name: "ok".into(),
+            effect: "lava".into(),
+            hue: 0,
+            brightness: 0,
+            speed: 0,
+            zones: vec![],
+        };
         assert!(bad2.validate().is_err());
     }
 

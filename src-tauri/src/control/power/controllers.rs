@@ -13,9 +13,10 @@ use crate::control::traits::*;
 use crate::telemetry::hardware::Vendor;
 
 /* --------------------------------------------------------------------------
-   Linux / power-profiles-daemon
-   -------------------------------------------------------------------------- */
+Linux / power-profiles-daemon
+-------------------------------------------------------------------------- */
 pub struct LinuxPowerController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
 }
 
@@ -37,7 +38,10 @@ impl Controller for LinuxPowerController {
 impl PowerController for LinuxPowerController {
     fn set_profile(&self, req: &PowerRequest) -> ControlResult {
         if !self.available_profiles().iter().any(|p| p == &req.profile) {
-            return Err(ControlError::InvalidParameter(format!("unknown profile '{}'", req.profile)));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown profile '{}'",
+                req.profile
+            )));
         }
         ppd::set(&req.profile)?;
         Ok(ControlOutcome {
@@ -55,8 +59,8 @@ impl PowerController for LinuxPowerController {
 }
 
 /* --------------------------------------------------------------------------
-   platform_profile (ACPI) — shared by Omen + Generic
-   -------------------------------------------------------------------------- */
+platform_profile (ACPI) — shared by Omen + Generic
+-------------------------------------------------------------------------- */
 const ACPI_BASE: &str = "/sys/firmware/acpi";
 
 fn pp_writer() -> SafeWriter {
@@ -75,7 +79,9 @@ fn pp_current(w: &SafeWriter) -> Option<String> {
 
 fn pp_set(w: &SafeWriter, name: &str) -> ControlResult {
     if !pp_available(w).iter().any(|p| p == name) {
-        return Err(ControlError::InvalidParameter(format!("unknown profile '{name}'")));
+        return Err(ControlError::InvalidParameter(format!(
+            "unknown profile '{name}'"
+        )));
     }
     w.apply(&[WriteOp::new("platform_profile", name)])?;
     Ok(ControlOutcome {
@@ -86,13 +92,17 @@ fn pp_set(w: &SafeWriter, name: &str) -> ControlResult {
 }
 
 pub struct OmenPowerController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
     writer: SafeWriter,
 }
 
 impl OmenPowerController {
     pub fn new(vendor: Vendor) -> Self {
-        Self { vendor, writer: pp_writer() }
+        Self {
+            vendor,
+            writer: pp_writer(),
+        }
     }
 }
 
@@ -118,18 +128,22 @@ impl PowerController for OmenPowerController {
 }
 
 /* --------------------------------------------------------------------------
-   Generic — platform_profile if present, else cpufreq governor
-   -------------------------------------------------------------------------- */
+Generic — platform_profile if present, else cpufreq governor
+-------------------------------------------------------------------------- */
 const CPUFREQ: &str = "/sys/devices/system/cpu/cpu0/cpufreq";
 
 pub struct GenericPowerController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
     writer: SafeWriter,
 }
 
 impl GenericPowerController {
     pub fn new(vendor: Vendor) -> Self {
-        Self { vendor, writer: pp_writer() }
+        Self {
+            vendor,
+            writer: pp_writer(),
+        }
     }
 
     fn has_platform_profile(&self) -> bool {
@@ -153,7 +167,10 @@ impl PowerController for GenericPowerController {
         }
         // cpufreq governor fallback.
         if !self.available_profiles().iter().any(|p| p == &req.profile) {
-            return Err(ControlError::InvalidParameter(format!("unknown governor '{}'", req.profile)));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown governor '{}'",
+                req.profile
+            )));
         }
         let gw = SafeWriter::new(CPUFREQ, Arc::new(RealFs));
         gw.apply(&[WriteOp::new("scaling_governor", req.profile.clone())])?;
@@ -176,6 +193,8 @@ impl PowerController for GenericPowerController {
         if self.has_platform_profile() {
             return pp_current(&self.writer);
         }
-        SafeWriter::new(CPUFREQ, Arc::new(RealFs)).read("scaling_governor").ok()
+        SafeWriter::new(CPUFREQ, Arc::new(RealFs))
+            .read("scaling_governor")
+            .ok()
     }
 }

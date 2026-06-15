@@ -11,6 +11,7 @@ use crate::control::traits::*;
 use crate::telemetry::hardware::Vendor;
 
 pub struct GenericController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
     profiles: Vec<String>,
 }

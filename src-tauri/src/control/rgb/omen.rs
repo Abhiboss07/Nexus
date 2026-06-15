@@ -22,6 +22,7 @@ use crate::telemetry::hardware::Vendor;
 pub const OMEN_RGB_BASE: &str = "/sys/devices/platform/omen-rgb-keyboard/rgb_zones";
 
 pub struct OmenRgbController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
     writer: SafeWriter,
     zone_count: u32,
@@ -48,10 +49,15 @@ impl OmenRgbController {
     /// Validate a request and lower it to a batch of sysfs writes.
     fn plan(&self, req: &RgbRequest) -> Result<Vec<WriteOp>, ControlError> {
         if !effects::is_valid(&req.effect) {
-            return Err(ControlError::InvalidParameter(format!("unknown effect '{}'", req.effect)));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown effect '{}'",
+                req.effect
+            )));
         }
         if req.brightness > 100 {
-            return Err(ControlError::InvalidParameter("brightness must be 0–100".into()));
+            return Err(ControlError::InvalidParameter(
+                "brightness must be 0–100".into(),
+            ));
         }
         // Resolve color write target ("all" or a specific zone).
         let target = match &req.zone {
@@ -60,7 +66,11 @@ impl OmenRgbController {
                 let idx = z.strip_prefix("zone").and_then(|n| n.parse::<u32>().ok());
                 match idx {
                     Some(i) if i < self.zone_count => zone_file(i),
-                    _ => return Err(ControlError::InvalidParameter(format!("invalid zone '{z}'"))),
+                    _ => {
+                        return Err(ControlError::InvalidParameter(format!(
+                            "invalid zone '{z}'"
+                        )))
+                    }
                 }
             }
         };
@@ -76,7 +86,10 @@ impl OmenRgbController {
         // 2) Brightness.
         ops.push(WriteOp::new("brightness", req.brightness.to_string()));
         // 3) Speed (harmless for static).
-        ops.push(WriteOp::new("animation_speed", effects::to_driver_speed(req.speed).to_string()));
+        ops.push(WriteOp::new(
+            "animation_speed",
+            effects::to_driver_speed(req.speed).to_string(),
+        ));
         // 4) Mode last, so it engages with the freshly-set color.
         ops.push(WriteOp::new("animation_mode", req.effect.clone()));
 
@@ -111,18 +124,34 @@ impl RgbController for OmenRgbController {
     fn off(&self) -> ControlResult {
         // Brightness 0 scales every zone to black (reversible by re-applying).
         self.writer.apply(&[WriteOp::new("brightness", "0")])?;
-        Ok(ControlOutcome { applied: true, dry_run: false, message: "Lighting off".into() })
+        Ok(ControlOutcome {
+            applied: true,
+            dry_run: false,
+            message: "Lighting off".into(),
+        })
     }
 
     fn state(&self) -> Option<RgbState> {
         let effect = self.writer.read("animation_mode").ok().unwrap_or_default();
-        let brightness = self.writer.read("brightness").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-        let driver_speed: u8 = self.writer.read("animation_speed").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+        let brightness = self
+            .writer
+            .read("brightness")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let driver_speed: u8 = self
+            .writer
+            .read("animation_speed")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
         let mut zones = Vec::new();
         for i in 0..self.zone_count {
             if let Ok(v) = self.writer.read(&zone_file(i)) {
                 // Normalize to "#rrggbb".
-                let normalized = Rgb::parse(&v).map(|c| format!("#{}", c.to_driver_hex())).unwrap_or(v);
+                let normalized = Rgb::parse(&v)
+                    .map(|c| format!("#{}", c.to_driver_hex()))
+                    .unwrap_or(v);
                 zones.push(normalized);
             }
         }
@@ -141,8 +170,8 @@ impl RgbController for OmenRgbController {
 
 #[cfg(test)]
 mod tests {
-    use crate::control::safe_writer::test_fs::MockFs;
     use super::*;
+    use crate::control::safe_writer::test_fs::MockFs;
 
     fn base_files() -> Vec<(String, String)> {
         let mut v = vec![
@@ -159,7 +188,10 @@ mod tests {
 
     fn controller(readonly: &[&str]) -> (OmenRgbController, Arc<MockFs>) {
         let files: Vec<(String, String)> = base_files();
-        let refs: Vec<(&str, &str)> = files.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let refs: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let fs = Arc::new(MockFs::new(&refs, readonly));
         let ctl = OmenRgbController::new(Vendor::Omen, OMEN_RGB_BASE, fs.clone());
         (ctl, fs)
@@ -174,29 +206,70 @@ mod tests {
     #[test]
     fn static_red_writes_color_and_mode() {
         let (ctl, fs) = controller(&[]);
-        let req = RgbRequest { effect: "static".into(), hue: 0, brightness: 90, speed: 50, zone: None };
+        let req = RgbRequest {
+            effect: "static".into(),
+            hue: 0,
+            brightness: 90,
+            speed: 50,
+            zone: None,
+        };
         let out = ctl.set(&req).unwrap();
         assert!(out.applied);
         assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/all")).unwrap(), "ff0000");
-        assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/animation_mode")).unwrap(), "static");
-        assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/brightness")).unwrap(), "90");
+        assert_eq!(
+            fs.get(&format!("{OMEN_RGB_BASE}/animation_mode")).unwrap(),
+            "static"
+        );
+        assert_eq!(
+            fs.get(&format!("{OMEN_RGB_BASE}/brightness")).unwrap(),
+            "90"
+        );
     }
 
     #[test]
     fn rainbow_skips_base_color() {
         let (ctl, fs) = controller(&[]);
-        ctl.set(&RgbRequest { effect: "rainbow".into(), hue: 200, brightness: 80, speed: 100, zone: None }).unwrap();
+        ctl.set(&RgbRequest {
+            effect: "rainbow".into(),
+            hue: 200,
+            brightness: 80,
+            speed: 100,
+            zone: None,
+        })
+        .unwrap();
         // Color not overwritten (rainbow generates its own palette).
         assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/all")).unwrap(), "#000000");
-        assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/animation_mode")).unwrap(), "rainbow");
-        assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/animation_speed")).unwrap(), "10");
+        assert_eq!(
+            fs.get(&format!("{OMEN_RGB_BASE}/animation_mode")).unwrap(),
+            "rainbow"
+        );
+        assert_eq!(
+            fs.get(&format!("{OMEN_RGB_BASE}/animation_speed")).unwrap(),
+            "10"
+        );
     }
 
     #[test]
     fn rejects_unknown_effect_and_bad_zone() {
         let (ctl, _) = controller(&[]);
-        assert!(ctl.set(&RgbRequest { effect: "lava".into(), hue: 0, brightness: 50, speed: 50, zone: None }).is_err());
-        assert!(ctl.set(&RgbRequest { effect: "static".into(), hue: 0, brightness: 50, speed: 50, zone: Some("zone09".into()) }).is_err());
+        assert!(ctl
+            .set(&RgbRequest {
+                effect: "lava".into(),
+                hue: 0,
+                brightness: 50,
+                speed: 50,
+                zone: None
+            })
+            .is_err());
+        assert!(ctl
+            .set(&RgbRequest {
+                effect: "static".into(),
+                hue: 0,
+                brightness: 50,
+                speed: 50,
+                zone: Some("zone09".into())
+            })
+            .is_err());
     }
 
     #[test]
@@ -205,16 +278,32 @@ mod tests {
         // those must roll back to their prior values.
         let mode = format!("{OMEN_RGB_BASE}/animation_mode");
         let (ctl, fs) = controller(&[&mode]);
-        let res = ctl.set(&RgbRequest { effect: "static".into(), hue: 0, brightness: 90, speed: 50, zone: None });
+        let res = ctl.set(&RgbRequest {
+            effect: "static".into(),
+            hue: 0,
+            brightness: 90,
+            speed: 50,
+            zone: None,
+        });
         assert!(matches!(res, Err(ControlError::PermissionDenied)));
         assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/all")).unwrap(), "#000000");
-        assert_eq!(fs.get(&format!("{OMEN_RGB_BASE}/brightness")).unwrap(), "100");
+        assert_eq!(
+            fs.get(&format!("{OMEN_RGB_BASE}/brightness")).unwrap(),
+            "100"
+        );
     }
 
     #[test]
     fn reads_state() {
         let (ctl, _) = controller(&[]);
-        ctl.set(&RgbRequest { effect: "aurora".into(), hue: 270, brightness: 75, speed: 60, zone: None }).unwrap();
+        ctl.set(&RgbRequest {
+            effect: "aurora".into(),
+            hue: 270,
+            brightness: 75,
+            speed: 60,
+            zone: None,
+        })
+        .unwrap();
         let st = ctl.state().unwrap();
         assert_eq!(st.effect, "aurora");
         assert_eq!(st.brightness, 75);

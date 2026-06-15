@@ -53,7 +53,10 @@ impl DriverRegistry {
             if is_hp && caps.fan.status.driver == "hp-wmi" {
                 Some(Box::new(OmenController::new(vendor)))
             } else {
-                Some(Box::new(GenericController::new(vendor, caps.power.profiles.clone())))
+                Some(Box::new(GenericController::new(
+                    vendor,
+                    caps.power.profiles.clone(),
+                )))
             }
         } else {
             None
@@ -71,7 +74,12 @@ impl DriverRegistry {
             None
         };
 
-        VendorController { fan, power, battery, mux }
+        VendorController {
+            fan,
+            power,
+            battery,
+            mux,
+        }
     }
 }
 
@@ -79,10 +87,22 @@ impl VendorController {
     /// Per-domain driver names for diagnostics / IPC.
     pub fn drivers(&self) -> Vec<DriverInfo> {
         vec![
-            DriverInfo { domain: "fan".into(), driver: self.fan.as_ref().map(|c| c.name().to_string()) },
-            DriverInfo { domain: "power".into(), driver: self.power.as_ref().map(|c| c.name().to_string()) },
-            DriverInfo { domain: "battery".into(), driver: self.battery.as_ref().map(|c| c.name().to_string()) },
-            DriverInfo { domain: "mux".into(), driver: self.mux.as_ref().map(|c| c.name().to_string()) },
+            DriverInfo {
+                domain: "fan".into(),
+                driver: self.fan.as_ref().map(|c| c.name().to_string()),
+            },
+            DriverInfo {
+                domain: "power".into(),
+                driver: self.power.as_ref().map(|c| c.name().to_string()),
+            },
+            DriverInfo {
+                domain: "battery".into(),
+                driver: self.battery.as_ref().map(|c| c.name().to_string()),
+            },
+            DriverInfo {
+                domain: "mux".into(),
+                driver: self.mux.as_ref().map(|c| c.name().to_string()),
+            },
         ]
     }
 }
@@ -133,8 +153,10 @@ mod tests {
 
     #[test]
     fn generic_power_from_platform_profile() {
-        let probe = MockProbe::new()
-            .file("/sys/firmware/acpi/platform_profile_choices", "low-power balanced performance");
+        let probe = MockProbe::new().file(
+            "/sys/firmware/acpi/platform_profile_choices",
+            "low-power balanced performance",
+        );
         let p = profile(Vendor::Legion);
         let caps = CapabilityDetector::new(&probe).detect(&p);
         let vc = DriverRegistry::resolve(&p, &caps);

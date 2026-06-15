@@ -95,7 +95,12 @@ pub fn lifespan(health: f32, reported_cycles: u32) -> LifespanEstimate {
         )
     };
 
-    LifespanEstimate { equivalent_cycles, cycles_to_eol, years_remaining, summary }
+    LifespanEstimate {
+        equivalent_cycles,
+        cycles_to_eol,
+        years_remaining,
+        summary,
+    }
 }
 
 #[cfg(test)]

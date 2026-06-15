@@ -8,4 +8,4 @@ pub mod controllers;
 pub mod engine;
 pub mod ppd;
 
-pub use engine::{PowerEngine, PowerInfo, ProfileMeta};
+pub use engine::{PowerEngine, PowerInfo};

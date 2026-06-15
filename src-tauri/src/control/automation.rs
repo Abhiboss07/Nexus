@@ -45,10 +45,32 @@ impl Default for AutomationConfig {
             // Off by default — opt-in so Nexus never changes state unprompted.
             enabled: false,
             rules: vec![
-                rule("steam-gaming", Trigger::ProcessRunning { process: "steam".into() }, "gaming"),
-                rule("code-coding", Trigger::ProcessRunning { process: "code".into() }, "coding"),
-                rule("obs-streaming", Trigger::ProcessRunning { process: "obs".into() }, "streaming"),
-                rule("low-battery", Trigger::BatteryBelow { percent: 20 }, "battery-saver"),
+                rule(
+                    "steam-gaming",
+                    Trigger::ProcessRunning {
+                        process: "steam".into(),
+                    },
+                    "gaming",
+                ),
+                rule(
+                    "code-coding",
+                    Trigger::ProcessRunning {
+                        process: "code".into(),
+                    },
+                    "coding",
+                ),
+                rule(
+                    "obs-streaming",
+                    Trigger::ProcessRunning {
+                        process: "obs".into(),
+                    },
+                    "streaming",
+                ),
+                rule(
+                    "low-battery",
+                    Trigger::BatteryBelow { percent: 20 },
+                    "battery-saver",
+                ),
             ],
         }
     }
@@ -77,9 +99,7 @@ pub fn evaluate(cfg: &AutomationConfig, ctx: &SystemContext) -> Option<String> {
                 let needle = process.to_lowercase();
                 ctx.processes.iter().any(|p| p.contains(&needle))
             }
-            Trigger::BatteryBelow { percent } => {
-                ctx.battery_percent.is_some_and(|b| b < *percent)
-            }
+            Trigger::BatteryBelow { percent } => ctx.battery_percent.is_some_and(|b| b < *percent),
             Trigger::AcConnected { connected } => ctx.ac_online == *connected,
         };
         if hit {
@@ -105,10 +125,13 @@ pub fn gather_context() -> SystemContext {
         }
     }
 
-    let battery_percent = ["/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"]
-        .into_iter()
-        .find_map(|b| std::fs::read_to_string(format!("{b}/capacity")).ok())
-        .and_then(|s| s.trim().parse::<u8>().ok());
+    let battery_percent = [
+        "/sys/class/power_supply/BAT0",
+        "/sys/class/power_supply/BAT1",
+    ]
+    .into_iter()
+    .find_map(|b| std::fs::read_to_string(format!("{b}/capacity")).ok())
+    .and_then(|s| s.trim().parse::<u8>().ok());
 
     SystemContext {
         processes,
@@ -141,14 +164,20 @@ mod tests {
         let mut cfg = AutomationConfig::default();
         cfg.enabled = true;
         // steam running + low battery → gaming wins (higher priority).
-        assert_eq!(evaluate(&cfg, &ctx(&["steam", "bash"], Some(10), false)).as_deref(), Some("gaming"));
+        assert_eq!(
+            evaluate(&cfg, &ctx(&["steam", "bash"], Some(10), false)).as_deref(),
+            Some("gaming")
+        );
     }
 
     #[test]
     fn low_battery_matches_when_no_process() {
         let mut cfg = AutomationConfig::default();
         cfg.enabled = true;
-        assert_eq!(evaluate(&cfg, &ctx(&["bash"], Some(15), false)).as_deref(), Some("battery-saver"));
+        assert_eq!(
+            evaluate(&cfg, &ctx(&["bash"], Some(15), false)).as_deref(),
+            Some("battery-saver")
+        );
     }
 
     #[test]

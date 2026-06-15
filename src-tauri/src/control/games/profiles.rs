@@ -105,7 +105,11 @@ impl GameProfile {
                 .as_ref()
                 .map(|id| format!("steam steam://rungameid/{id}"))
                 .unwrap_or_else(|| "steam".into()),
-            "lutris" => game.id.strip_prefix("lutris:").map(|s| format!("lutris lutris:rungame/{s}")).unwrap_or_else(|| "lutris".into()),
+            "lutris" => game
+                .id
+                .strip_prefix("lutris:")
+                .map(|s| format!("lutris lutris:rungame/{s}"))
+                .unwrap_or_else(|| "lutris".into()),
             _ => self.launch_command.clone().unwrap_or_default(),
         };
         // Steam/Lutris apply their own per-game options; the wrapper is most
@@ -119,7 +123,9 @@ impl GameProfile {
 }
 
 fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || "._-/:=".contains(c)) {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "._-/:=".contains(c))
+    {
         s.to_string()
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
@@ -128,7 +134,13 @@ fn shell_quote(s: &str) -> String {
 
 fn safe_stem(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -141,20 +153,29 @@ impl GameProfileStore {
     pub fn new() -> Self {
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".config"));
+            .unwrap_or_else(|_| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+                    .join(".config")
+            });
         let dir = base.join("nexus").join("games");
         let _ = fs::create_dir_all(&dir);
         Self { dir }
     }
 
     pub fn get(&self, game_id: &str) -> Option<GameProfile> {
-        let text = fs::read_to_string(self.dir.join(format!("{}.json", safe_stem(game_id)))).ok()?;
+        let text =
+            fs::read_to_string(self.dir.join(format!("{}.json", safe_stem(game_id)))).ok()?;
         serde_json::from_str(&text).ok()
     }
 
     pub fn save(&self, profile: &GameProfile) -> Result<(), String> {
         let json = serde_json::to_string_pretty(profile).map_err(|e| e.to_string())?;
-        fs::write(self.dir.join(format!("{}.json", safe_stem(&profile.game_id))), json).map_err(|e| e.to_string())
+        fs::write(
+            self.dir
+                .join(format!("{}.json", safe_stem(&profile.game_id))),
+            json,
+        )
+        .map_err(|e| e.to_string())
     }
 
     pub fn delete(&self, game_id: &str) -> Result<(), String> {
@@ -166,6 +187,7 @@ impl GameProfileStore {
         }
     }
 
+    #[allow(dead_code)]
     pub fn list(&self) -> Vec<GameProfile> {
         let mut out = Vec::new();
         if let Ok(rd) = fs::read_dir(&self.dir) {
@@ -212,7 +234,10 @@ mod tests {
         p.use_mangohud = true;
         p.use_gamemode = true;
         p.use_prime = true;
-        p.env_vars.push(EnvVar { key: "DXVK_HUD".into(), value: "fps".into() });
+        p.env_vars.push(EnvVar {
+            key: "DXVK_HUD".into(),
+            value: "fps".into(),
+        });
         let opt = p.steam_launch_options();
         assert!(opt.contains("mangohud"));
         assert!(opt.contains("gamemoderun"));

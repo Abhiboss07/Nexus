@@ -34,28 +34,79 @@ pub struct NexusProfile {
 }
 
 fn rgb(effect: &str, hue: u16, brightness: u8, speed: u8) -> Option<RgbSpec> {
-    Some(RgbSpec { effect: effect.into(), hue, brightness, speed })
+    Some(RgbSpec {
+        effect: effect.into(),
+        hue,
+        brightness,
+        speed,
+    })
 }
 
 /// The five built-in profiles.
 pub fn builtins() -> Vec<NexusProfile> {
     vec![
-        NexusProfile { id: "gaming".into(), name: "Gaming".into(), icon: "gamepad".into(), builtin: true,
-            power: Some("performance".into()), rgb: rgb("static", 0, 100, 50), fan: None, gpu: None },
-        NexusProfile { id: "coding".into(), name: "Coding".into(), icon: "code".into(), builtin: true,
-            power: Some("balanced".into()), rgb: rgb("static", 210, 70, 0), fan: None, gpu: None },
-        NexusProfile { id: "streaming".into(), name: "Streaming".into(), icon: "video".into(), builtin: true,
-            power: Some("performance".into()), rgb: rgb("breathing", 280, 90, 40), fan: None, gpu: None },
-        NexusProfile { id: "battery-saver".into(), name: "Battery Saver".into(), icon: "leaf".into(), builtin: true,
-            power: Some("power-saver".into()), rgb: rgb("static", 30, 25, 0), fan: None, gpu: None },
-        NexusProfile { id: "custom".into(), name: "Custom".into(), icon: "sliders".into(), builtin: true,
-            power: Some("balanced".into()), rgb: None, fan: None, gpu: None },
+        NexusProfile {
+            id: "gaming".into(),
+            name: "Gaming".into(),
+            icon: "gamepad".into(),
+            builtin: true,
+            power: Some("performance".into()),
+            rgb: rgb("static", 0, 100, 50),
+            fan: None,
+            gpu: None,
+        },
+        NexusProfile {
+            id: "coding".into(),
+            name: "Coding".into(),
+            icon: "code".into(),
+            builtin: true,
+            power: Some("balanced".into()),
+            rgb: rgb("static", 210, 70, 0),
+            fan: None,
+            gpu: None,
+        },
+        NexusProfile {
+            id: "streaming".into(),
+            name: "Streaming".into(),
+            icon: "video".into(),
+            builtin: true,
+            power: Some("performance".into()),
+            rgb: rgb("breathing", 280, 90, 40),
+            fan: None,
+            gpu: None,
+        },
+        NexusProfile {
+            id: "battery-saver".into(),
+            name: "Battery Saver".into(),
+            icon: "leaf".into(),
+            builtin: true,
+            power: Some("power-saver".into()),
+            rgb: rgb("static", 30, 25, 0),
+            fan: None,
+            gpu: None,
+        },
+        NexusProfile {
+            id: "custom".into(),
+            name: "Custom".into(),
+            icon: "sliders".into(),
+            builtin: true,
+            power: Some("balanced".into()),
+            rgb: None,
+            fan: None,
+            gpu: None,
+        },
     ]
 }
 
 fn safe_stem(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -68,7 +119,10 @@ impl NexusProfileStore {
     pub fn new() -> Self {
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".config"));
+            .unwrap_or_else(|_| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+                    .join(".config")
+            });
         let dir = base.join("nexus").join("profiles");
         let _ = fs::create_dir_all(&dir);
         Self { dir }
@@ -102,7 +156,11 @@ impl NexusProfileStore {
 
     pub fn save(&self, profile: &NexusProfile) -> Result<(), String> {
         let json = serde_json::to_string_pretty(profile).map_err(|e| e.to_string())?;
-        fs::write(self.dir.join(format!("{}.json", safe_stem(&profile.id))), json).map_err(|e| e.to_string())
+        fs::write(
+            self.dir.join(format!("{}.json", safe_stem(&profile.id))),
+            json,
+        )
+        .map_err(|e| e.to_string())
     }
 
     pub fn delete(&self, id: &str) -> Result<(), String> {

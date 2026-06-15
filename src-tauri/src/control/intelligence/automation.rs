@@ -24,11 +24,15 @@ pub struct AutomationSuggestion {
 }
 
 fn has_process_rule(cfg: &AutomationConfig, needle: &str) -> bool {
-    cfg.rules.iter().any(|r| matches!(&r.trigger, Trigger::ProcessRunning { process } if process.contains(needle)))
+    cfg.rules.iter().any(
+        |r| matches!(&r.trigger, Trigger::ProcessRunning { process } if process.contains(needle)),
+    )
 }
 
 fn has_battery_rule(cfg: &AutomationConfig) -> bool {
-    cfg.rules.iter().any(|r| matches!(&r.trigger, Trigger::BatteryBelow { .. }))
+    cfg.rules
+        .iter()
+        .any(|r| matches!(&r.trigger, Trigger::BatteryBelow { .. }))
 }
 
 pub fn suggest(
@@ -93,21 +97,44 @@ mod tests {
     fn caps() -> HardwareCapabilities {
         use crate::control::capabilities::*;
         use crate::telemetry::hardware::Vendor;
-        HardwareCapabilities { vendor: Vendor::Omen, vendor_label: "x".into(), rgb: RgbCapability::default(), fan: FanCapability::default(), power: PowerCapability::default(), battery: BatteryCapability::default(), mux: MuxCapability::default() }
+        HardwareCapabilities {
+            vendor: Vendor::Omen,
+            vendor_label: "x".into(),
+            rgb: RgbCapability::default(),
+            fan: FanCapability::default(),
+            power: PowerCapability::default(),
+            battery: BatteryCapability::default(),
+            mux: MuxCapability::default(),
+        }
     }
 
     #[test]
     fn suggests_gaming_when_gpu_hot_and_no_rule() {
-        let hist: Vec<_> = (0..20).map(|_| { let mut p = HistoryPoint::default(); p.gpu_temp = 80.0; p }).collect();
+        let hist: Vec<_> = (0..20)
+            .map(|_| {
+                let mut p = HistoryPoint::default();
+                p.gpu_temp = 80.0;
+                p
+            })
+            .collect();
         // empty config (default has rules though) → use a truly empty one
-        let empty = AutomationConfig { enabled: false, rules: vec![] };
+        let empty = AutomationConfig {
+            enabled: false,
+            rules: vec![],
+        };
         let out = suggest(&hist, &Snapshot::default(), &empty, &caps());
         assert!(out.iter().any(|s| s.id == "auto-gaming"));
     }
 
     #[test]
     fn does_not_resuggest_existing_rules() {
-        let hist: Vec<_> = (0..20).map(|_| { let mut p = HistoryPoint::default(); p.gpu_temp = 80.0; p }).collect();
+        let hist: Vec<_> = (0..20)
+            .map(|_| {
+                let mut p = HistoryPoint::default();
+                p.gpu_temp = 80.0;
+                p
+            })
+            .collect();
         let cfg = AutomationConfig::default(); // already has steam→gaming
         let out = suggest(&hist, &Snapshot::default(), &cfg, &caps());
         assert!(!out.iter().any(|s| s.id == "auto-gaming"));

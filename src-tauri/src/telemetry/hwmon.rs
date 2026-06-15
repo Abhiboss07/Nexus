@@ -74,9 +74,11 @@ impl HwmonScan {
     pub fn temp_for(&self, chips: &[&str], label_prefix: Option<&str>) -> Option<f32> {
         // Prefer an exact label match first.
         if let Some(prefix) = label_prefix {
-            if let Some(t) = self.temps.iter().find(|t| {
-                chips.iter().any(|c| t.chip.contains(*c)) && t.label.starts_with(prefix)
-            }) {
+            if let Some(t) = self
+                .temps
+                .iter()
+                .find(|t| chips.iter().any(|c| t.chip.contains(*c)) && t.label.starts_with(prefix))
+            {
                 return Some(t.celsius);
             }
         }

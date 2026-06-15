@@ -48,7 +48,11 @@ fn slope(ys: &[f32]) -> f32 {
 fn trend(metric: &str, ys: Vec<f32>, stable_band: f32) -> Trend {
     let samples = ys.len();
     let current = ys.last().copied().unwrap_or(0.0);
-    let average = if samples > 0 { ys.iter().sum::<f32>() / samples as f32 } else { 0.0 };
+    let average = if samples > 0 {
+        ys.iter().sum::<f32>() / samples as f32
+    } else {
+        0.0
+    };
     let min = ys.iter().cloned().fold(f32::INFINITY, f32::min);
     let max = ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let s = slope(&ys);
@@ -78,7 +82,9 @@ fn downsample(ys: &[f32], target: usize) -> Vec<f32> {
         return ys.to_vec();
     }
     let step = ys.len() as f32 / target as f32;
-    (0..target).map(|i| ys[(i as f32 * step) as usize]).collect()
+    (0..target)
+        .map(|i| ys[(i as f32 * step) as usize])
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,12 +95,36 @@ pub struct TrendReport {
 
 pub fn analyze(history: &[HistoryPoint]) -> TrendReport {
     let metrics = vec![
-        trend("CPU Usage", history.iter().map(|p| p.cpu_usage).collect(), 0.05),
-        trend("CPU Temp", history.iter().map(|p| p.cpu_temp).collect(), 0.03),
-        trend("GPU Usage", history.iter().map(|p| p.gpu_usage).collect(), 0.05),
-        trend("GPU Temp", history.iter().map(|p| p.gpu_temp).collect(), 0.03),
-        trend("Memory", history.iter().map(|p| p.mem_usage).collect(), 0.03),
-        trend("CPU Fan", history.iter().map(|p| p.cpu_fan_rpm as f32).collect(), 2.0),
+        trend(
+            "CPU Usage",
+            history.iter().map(|p| p.cpu_usage).collect(),
+            0.05,
+        ),
+        trend(
+            "CPU Temp",
+            history.iter().map(|p| p.cpu_temp).collect(),
+            0.03,
+        ),
+        trend(
+            "GPU Usage",
+            history.iter().map(|p| p.gpu_usage).collect(),
+            0.05,
+        ),
+        trend(
+            "GPU Temp",
+            history.iter().map(|p| p.gpu_temp).collect(),
+            0.03,
+        ),
+        trend(
+            "Memory",
+            history.iter().map(|p| p.mem_usage).collect(),
+            0.03,
+        ),
+        trend(
+            "CPU Fan",
+            history.iter().map(|p| p.cpu_fan_rpm as f32).collect(),
+            2.0,
+        ),
     ];
     TrendReport { metrics }
 }
@@ -120,13 +150,24 @@ mod tests {
 
         let flat: Vec<_> = (0..20).map(|_| hp(50.0)).collect();
         let f = analyze(&flat);
-        assert_eq!(f.metrics.iter().find(|m| m.metric == "CPU Temp").unwrap().direction, "stable");
+        assert_eq!(
+            f.metrics
+                .iter()
+                .find(|m| m.metric == "CPU Temp")
+                .unwrap()
+                .direction,
+            "stable"
+        );
     }
 
     #[test]
     fn computes_min_max_avg() {
         let h: Vec<_> = [40.0, 60.0, 50.0].iter().map(|&t| hp(t)).collect();
-        let m = analyze(&h).metrics.into_iter().find(|m| m.metric == "CPU Temp").unwrap();
+        let m = analyze(&h)
+            .metrics
+            .into_iter()
+            .find(|m| m.metric == "CPU Temp")
+            .unwrap();
         assert_eq!(m.min, 40.0);
         assert_eq!(m.max, 60.0);
         assert!((m.average - 50.0).abs() < 0.01);

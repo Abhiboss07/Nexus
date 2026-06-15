@@ -7,9 +7,7 @@ use serde::Serialize;
 use super::controllers::{GenericPowerController, LinuxPowerController, OmenPowerController};
 use super::ppd;
 use crate::control::capabilities::PowerCapability;
-use crate::control::traits::{
-    ControlError, ControlResult, PowerController, PowerRequest,
-};
+use crate::control::traits::{ControlError, ControlResult, PowerController, PowerRequest};
 use crate::telemetry::hardware::Vendor;
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,7 +47,10 @@ impl PowerEngine {
         } else {
             None
         };
-        Self { controller, driver: caps.status.driver.clone() }
+        Self {
+            controller,
+            driver: caps.status.driver.clone(),
+        }
     }
 
     pub fn has_controller(&self) -> bool {
@@ -61,7 +62,10 @@ impl PowerEngine {
     }
 
     pub fn available(&self) -> Vec<String> {
-        self.controller.as_ref().map(|c| c.available_profiles()).unwrap_or_default()
+        self.controller
+            .as_ref()
+            .map(|c| c.available_profiles())
+            .unwrap_or_default()
     }
 
     /// Set a power profile with validation + verify + rollback.
@@ -72,7 +76,9 @@ impl PowerEngine {
             .ok_or_else(|| ControlError::DriverUnavailable("no power controller".into()))?;
 
         let prior = ctl.current_profile();
-        let outcome = ctl.set_profile(&PowerRequest { profile: name.to_string() })?;
+        let outcome = ctl.set_profile(&PowerRequest {
+            profile: name.to_string(),
+        })?;
 
         // Verify the switch actually took; roll back to the prior profile if not.
         if let Some(cur) = ctl.current_profile() {
@@ -80,7 +86,9 @@ impl PowerEngine {
                 if let Some(p) = &prior {
                     let _ = ctl.set_profile(&PowerRequest { profile: p.clone() });
                 }
-                return Err(ControlError::Io(format!("profile did not switch (still '{cur}')")));
+                return Err(ControlError::Io(format!(
+                    "profile did not switch (still '{cur}')"
+                )));
             }
         }
         Ok(outcome)
@@ -90,13 +98,21 @@ impl PowerEngine {
         let profiles: Vec<ProfileMeta> = if self.driver == "power-profiles-daemon" {
             ppd::list()
                 .into_iter()
-                .map(|e| ProfileMeta { name: e.name, cpu_driver: e.cpu_driver, active: e.active })
+                .map(|e| ProfileMeta {
+                    name: e.name,
+                    cpu_driver: e.cpu_driver,
+                    active: e.active,
+                })
                 .collect()
         } else {
             let cur = self.current();
             self.available()
                 .into_iter()
-                .map(|n| ProfileMeta { active: Some(&n) == cur.as_ref(), name: n, cpu_driver: None })
+                .map(|n| ProfileMeta {
+                    active: Some(&n) == cur.as_ref(),
+                    name: n,
+                    cpu_driver: None,
+                })
                 .collect()
         };
         PowerInfo {

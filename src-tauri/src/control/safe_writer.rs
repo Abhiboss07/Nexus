@@ -45,7 +45,10 @@ pub struct WriteOp {
 
 impl WriteOp {
     pub fn new(file: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { file: file.into(), value: value.into() }
+        Self {
+            file: file.into(),
+            value: value.into(),
+        }
     }
 }
 
@@ -64,13 +67,18 @@ fn map_io(e: &io::Error) -> ControlError {
 
 impl SafeWriter {
     pub fn new(base: impl Into<String>, fs: Arc<dyn FsOps>) -> Self {
-        Self { base: base.into(), fs }
+        Self {
+            base: base.into(),
+            fs,
+        }
     }
 
     /// Resolve a validated absolute path for a leaf file inside the base dir.
     fn resolve(&self, file: &str) -> Result<String, ControlError> {
         if file.is_empty() || file.contains('/') || file.contains("..") {
-            return Err(ControlError::InvalidParameter(format!("unsafe path '{file}'")));
+            return Err(ControlError::InvalidParameter(format!(
+                "unsafe path '{file}'"
+            )));
         }
         Ok(format!("{}/{}", self.base.trim_end_matches('/'), file))
     }
@@ -130,7 +138,12 @@ pub mod test_fs {
     impl MockFs {
         pub fn new(initial: &[(&str, &str)], readonly: &[&str]) -> Self {
             Self {
-                files: Mutex::new(initial.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()),
+                files: Mutex::new(
+                    initial
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                ),
                 readonly: readonly.iter().map(|s| s.to_string()).collect(),
             }
         }
@@ -152,7 +165,10 @@ pub mod test_fs {
             if self.readonly.contains(path) {
                 return Err(io::Error::from(io::ErrorKind::PermissionDenied));
             }
-            self.files.lock().unwrap().insert(path.to_string(), value.to_string());
+            self.files
+                .lock()
+                .unwrap()
+                .insert(path.to_string(), value.to_string());
             Ok(())
         }
         fn exists(&self, path: &str) -> bool {
@@ -175,7 +191,10 @@ mod tests {
     #[test]
     fn rejects_path_traversal() {
         let w = writer(MockFs::new(&[], &[]));
-        assert!(matches!(w.read("../../etc/passwd"), Err(ControlError::InvalidParameter(_))));
+        assert!(matches!(
+            w.read("../../etc/passwd"),
+            Err(ControlError::InvalidParameter(_))
+        ));
         assert!(matches!(
             w.apply(&[WriteOp::new("a/b", "x")]),
             Err(ControlError::InvalidParameter(_))
@@ -184,12 +203,19 @@ mod tests {
 
     #[test]
     fn applies_batch() {
-        let fs = MockFs::new(&[
-            (&format!("{BASE}/zone00"), "#000000"),
-            (&format!("{BASE}/all"), "#000000"),
-        ], &[]);
+        let fs = MockFs::new(
+            &[
+                (&format!("{BASE}/zone00"), "#000000"),
+                (&format!("{BASE}/all"), "#000000"),
+            ],
+            &[],
+        );
         let w = writer(fs);
-        w.apply(&[WriteOp::new("all", "ff0000"), WriteOp::new("brightness", "80")]).unwrap();
+        w.apply(&[
+            WriteOp::new("all", "ff0000"),
+            WriteOp::new("brightness", "80"),
+        ])
+        .unwrap();
         assert_eq!(w.read("all").unwrap(), "ff0000");
         assert_eq!(w.read("brightness").unwrap(), "80");
     }
@@ -202,7 +228,10 @@ mod tests {
         let speed = format!("{BASE}/animation_speed");
         let fs = MockFs::new(&[(&mode, "static"), (&speed, "1")], &[&speed]);
         let w = writer(fs);
-        let res = w.apply(&[WriteOp::new("animation_mode", "aurora"), WriteOp::new("animation_speed", "5")]);
+        let res = w.apply(&[
+            WriteOp::new("animation_mode", "aurora"),
+            WriteOp::new("animation_speed", "5"),
+        ]);
         assert!(matches!(res, Err(ControlError::PermissionDenied)));
         // Rolled back:
         assert_eq!(w.read("animation_mode").unwrap(), "static");
@@ -213,6 +242,9 @@ mod tests {
         let all = format!("{BASE}/all");
         let fs = MockFs::new(&[(&all, "#000000")], &[&all]);
         let w = writer(fs);
-        assert!(matches!(w.apply(&[WriteOp::new("all", "00ff00")]), Err(ControlError::PermissionDenied)));
+        assert!(matches!(
+            w.apply(&[WriteOp::new("all", "00ff00")]),
+            Err(ControlError::PermissionDenied)
+        ));
     }
 }

@@ -142,5 +142,8 @@ impl Default for TelemetryService {
 
 /// First fan RPM matching `label`, else 0 (for the compact history point).
 fn fan_rpm(fans: &[FanTelemetry], label: &str) -> u32 {
-    fans.iter().find(|f| f.label == label).map(|f| f.rpm).unwrap_or(0)
+    fans.iter()
+        .find(|f| f.label == label)
+        .map(|f| f.rpm)
+        .unwrap_or(0)
 }

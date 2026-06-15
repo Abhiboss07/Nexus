@@ -13,6 +13,7 @@ use crate::control::traits::*;
 use crate::telemetry::hardware::Vendor;
 
 pub struct OpenRgbController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
 }
 
@@ -31,9 +32,9 @@ impl OpenRgbController {
             Ok(out) => Err(ControlError::Io(
                 String::from_utf8_lossy(&out.stderr).trim().to_string(),
             )),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Err(ControlError::DriverUnavailable("openrgb not installed".into()))
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(
+                ControlError::DriverUnavailable("openrgb not installed".into()),
+            ),
             Err(e) => Err(ControlError::Io(e.to_string())),
         }
     }
@@ -51,7 +52,10 @@ impl Controller for OpenRgbController {
 impl RgbController for OpenRgbController {
     fn set(&self, req: &RgbRequest) -> ControlResult {
         if !effects::is_valid(&req.effect) {
-            return Err(ControlError::InvalidParameter(format!("unknown effect '{}'", req.effect)));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown effect '{}'",
+                req.effect
+            )));
         }
         let color = Rgb::from_hue(req.hue);
         let args = vec![
@@ -66,7 +70,12 @@ impl RgbController for OpenRgbController {
     }
 
     fn off(&self) -> ControlResult {
-        self.run(&["--mode".into(), "Static".into(), "--color".into(), "000000".into()])
+        self.run(&[
+            "--mode".into(),
+            "Static".into(),
+            "--color".into(),
+            "000000".into(),
+        ])
     }
 
     fn state(&self) -> Option<RgbState> {

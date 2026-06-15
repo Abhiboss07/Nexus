@@ -29,11 +29,15 @@ pub struct FanProfile {
 impl FanProfile {
     pub fn validate(&self) -> Result<(), ControlError> {
         if self.name.trim().is_empty() {
-            return Err(ControlError::InvalidParameter("profile name required".into()));
+            return Err(ControlError::InvalidParameter(
+                "profile name required".into(),
+            ));
         }
         if let Some(tp) = &self.thermal_profile {
             if !["performance", "normal", "silent"].contains(&tp.as_str()) {
-                return Err(ControlError::InvalidParameter(format!("bad thermal profile '{tp}'")));
+                return Err(ControlError::InvalidParameter(format!(
+                    "bad thermal profile '{tp}'"
+                )));
             }
         }
         if !self.curve.is_empty() {
@@ -50,31 +54,36 @@ fn cp(t: u32, p: u32) -> CurvePoint {
 pub fn presets() -> Vec<FanProfile> {
     vec![
         FanProfile {
-            name: "Silent".into(), builtin: true,
+            name: "Silent".into(),
+            builtin: true,
             thermal_profile: Some("silent".into()),
             curve: vec![cp(50, 20), cp(65, 35), cp(80, 60), cp(90, 80)],
             max_fan: false,
         },
         FanProfile {
-            name: "Balanced".into(), builtin: true,
+            name: "Balanced".into(),
+            builtin: true,
             thermal_profile: Some("normal".into()),
             curve: vec![cp(45, 25), cp(60, 40), cp(75, 65), cp(88, 90)],
             max_fan: false,
         },
         FanProfile {
-            name: "Gaming".into(), builtin: true,
+            name: "Gaming".into(),
+            builtin: true,
             thermal_profile: Some("performance".into()),
             curve: vec![cp(45, 35), cp(60, 55), cp(75, 80), cp(88, 100)],
             max_fan: false,
         },
         FanProfile {
-            name: "Turbo".into(), builtin: true,
+            name: "Turbo".into(),
+            builtin: true,
             thermal_profile: Some("performance".into()),
             curve: vec![],
             max_fan: true,
         },
         FanProfile {
-            name: "Custom".into(), builtin: true,
+            name: "Custom".into(),
+            builtin: true,
             thermal_profile: None,
             curve: vec![cp(45, 20), cp(60, 45), cp(75, 70), cp(88, 100)],
             max_fan: false,
@@ -84,7 +93,13 @@ pub fn presets() -> Vec<FanProfile> {
 
 fn safe_stem(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -97,7 +112,10 @@ impl FanProfileStore {
     pub fn new() -> Self {
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".config"));
+            .unwrap_or_else(|_| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+                    .join(".config")
+            });
         let dir = base.join("nexus").join("fan");
         let _ = fs::create_dir_all(&dir);
         Self { dir }
@@ -125,14 +143,20 @@ impl FanProfileStore {
     }
 
     pub fn get(&self, name: &str) -> Option<FanProfile> {
-        self.list().into_iter().find(|p| p.name.eq_ignore_ascii_case(name))
+        self.list()
+            .into_iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
     pub fn save(&self, profile: &FanProfile) -> Result<(), ControlError> {
         profile.validate()?;
-        let json = serde_json::to_string_pretty(profile).map_err(|e| ControlError::Io(e.to_string()))?;
-        fs::write(self.dir.join(format!("{}.json", safe_stem(&profile.name))), json)
-            .map_err(|e| ControlError::Io(e.to_string()))
+        let json =
+            serde_json::to_string_pretty(profile).map_err(|e| ControlError::Io(e.to_string()))?;
+        fs::write(
+            self.dir.join(format!("{}.json", safe_stem(&profile.name))),
+            json,
+        )
+        .map_err(|e| ControlError::Io(e.to_string()))
     }
 
     pub fn delete(&self, name: &str) -> Result<(), ControlError> {
@@ -145,13 +169,16 @@ impl FanProfileStore {
     }
 
     pub fn export(&self, name: &str) -> Result<String, ControlError> {
-        let p = self.get(name).ok_or_else(|| ControlError::InvalidParameter(format!("profile '{name}' not found")))?;
+        let p = self
+            .get(name)
+            .ok_or_else(|| ControlError::InvalidParameter(format!("profile '{name}' not found")))?;
         serde_json::to_string_pretty(&p).map_err(|e| ControlError::Io(e.to_string()))
     }
 
     pub fn import(&self, json: &str) -> Result<FanProfile, ControlError> {
-        let mut profile: FanProfile = serde_json::from_str(json)
-            .map_err(|e| ControlError::InvalidParameter(format!("invalid fan profile JSON: {e}")))?;
+        let mut profile: FanProfile = serde_json::from_str(json).map_err(|e| {
+            ControlError::InvalidParameter(format!("invalid fan profile JSON: {e}"))
+        })?;
         profile.builtin = false;
         profile.validate()?;
         self.save(&profile)?;

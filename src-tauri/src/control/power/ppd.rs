@@ -18,17 +18,23 @@ pub struct ProfileEntry {
 }
 
 fn run(args: &[&str]) -> Result<std::process::Output, ControlError> {
-    Command::new("powerprofilesctl").args(args).output().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            ControlError::DriverUnavailable("power-profiles-daemon not installed".into())
-        } else {
-            ControlError::Io(e.to_string())
-        }
-    })
+    Command::new("powerprofilesctl")
+        .args(args)
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ControlError::DriverUnavailable("power-profiles-daemon not installed".into())
+            } else {
+                ControlError::Io(e.to_string())
+            }
+        })
 }
 
+#[allow(dead_code)]
 pub fn available() -> bool {
-    run(&["version"]).map(|o| o.status.success()).unwrap_or(false)
+    run(&["version"])
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 pub fn get() -> Option<String> {
@@ -41,7 +47,9 @@ pub fn get() -> Option<String> {
 }
 
 pub fn list() -> Vec<ProfileEntry> {
-    let Ok(out) = run(&["list"]) else { return Vec::new() };
+    let Ok(out) = run(&["list"]) else {
+        return Vec::new();
+    };
     let text = String::from_utf8_lossy(&out.stdout);
     let mut entries: Vec<ProfileEntry> = Vec::new();
 
@@ -50,12 +58,23 @@ pub fn list() -> Vec<ProfileEntry> {
         if trimmed.is_empty() {
             continue;
         }
-        if trimmed.ends_with(':') && !trimmed.contains(' ') || (trimmed.ends_with(':') && line.trim_start().starts_with('*')) {
+        if trimmed.ends_with(':') && !trimmed.contains(' ')
+            || (trimmed.ends_with(':') && line.trim_start().starts_with('*'))
+        {
             // A profile header line, e.g. "  performance:" or "* balanced:".
             let active = line.trim_start().starts_with('*');
-            let name = trimmed.trim_start_matches('*').trim().trim_end_matches(':').trim().to_string();
+            let name = trimmed
+                .trim_start_matches('*')
+                .trim()
+                .trim_end_matches(':')
+                .trim()
+                .to_string();
             if !name.is_empty() {
-                entries.push(ProfileEntry { name, cpu_driver: None, active });
+                entries.push(ProfileEntry {
+                    name,
+                    cpu_driver: None,
+                    active,
+                });
             }
         } else if let Some(rest) = trimmed.strip_prefix("CpuDriver:") {
             if let Some(last) = entries.last_mut() {
@@ -72,10 +91,13 @@ pub fn set(name: &str) -> Result<(), ControlError> {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&out.stderr).to_lowercase();
-    if err.contains("not authorized") || err.contains("accessdenied") || err.contains("permission") {
+    if err.contains("not authorized") || err.contains("accessdenied") || err.contains("permission")
+    {
         Err(ControlError::PermissionDenied)
     } else if err.contains("does not exist") || err.contains("invalid") {
-        Err(ControlError::InvalidParameter(format!("unknown profile '{name}'")))
+        Err(ControlError::InvalidParameter(format!(
+            "unknown profile '{name}'"
+        )))
     } else {
         Err(ControlError::Io(err.trim().to_string()))
     }

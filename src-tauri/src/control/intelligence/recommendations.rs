@@ -25,7 +25,11 @@ pub struct Evidence {
 
 impl Evidence {
     pub fn new(metric: &str, value: impl ToString, threshold: impl ToString) -> Self {
-        Self { metric: metric.into(), value: value.to_string(), threshold: threshold.to_string() }
+        Self {
+            metric: metric.into(),
+            value: value.to_string(),
+            threshold: threshold.to_string(),
+        }
     }
 }
 
@@ -72,9 +76,13 @@ pub fn generate(
     // ---- CPU thermals (sustained, from history) ----
     let cpu_temp_avg = avg(history, |p| p.cpu_temp);
     if cpu_temp_avg >= 82.0 {
-        let sev = if cpu_temp_avg >= 90.0 { "critical" } else { "warning" };
+        let sev = if cpu_temp_avg >= 90.0 {
+            "critical"
+        } else {
+            "warning"
+        };
         // If a controllable fan curve exists, point to it; else advise airflow.
-        let action = if caps.fan.status.controllable && caps.fan.status.driver != "" {
+        let action = if caps.fan.status.controllable && !caps.fan.status.driver.is_empty() {
             Some("/performance#fan".into())
         } else {
             None
@@ -83,9 +91,11 @@ pub fn generate(
             id: "cpu-thermal".into(),
             title: "CPU running hot under load".into(),
             detail: if action.is_some() {
-                "Sustained CPU temperatures are high. A more aggressive fan curve will lower peaks.".into()
+                "Sustained CPU temperatures are high. A more aggressive fan curve will lower peaks."
+                    .into()
             } else {
-                "Sustained CPU temperatures are high. Improve airflow or reduce sustained load.".into()
+                "Sustained CPU temperatures are high. Improve airflow or reduce sustained load."
+                    .into()
             },
             category: "thermal".into(),
             severity: sev.into(),
@@ -119,13 +129,23 @@ pub fn generate(
         out.push(Recommendation {
             id: "mem-pressure".into(),
             title: "Memory pressure is high".into(),
-            detail: "RAM is nearly full. Close unused apps or browser tabs to prevent swapping.".into(),
+            detail: "RAM is nearly full. Close unused apps or browser tabs to prevent swapping."
+                .into(),
             category: "memory".into(),
-            severity: if snapshot.memory.usage >= 95.0 { "critical" } else { "warning" }.into(),
+            severity: if snapshot.memory.usage >= 95.0 {
+                "critical"
+            } else {
+                "warning"
+            }
+            .into(),
             confidence: confidence((snapshot.memory.usage - 88.0) / 12.0, n.max(1)),
             evidence: vec![
                 Evidence::new("RAM used", format!("{:.0}%", snapshot.memory.usage), "88%"),
-                Evidence::new("Swap used", format!("{:.0}%", snapshot.memory.swap_usage), "—"),
+                Evidence::new(
+                    "Swap used",
+                    format!("{:.0}%", snapshot.memory.swap_usage),
+                    "—",
+                ),
             ],
             action: Some("/tasks".into()),
         });
@@ -137,11 +157,22 @@ pub fn generate(
             out.push(Recommendation {
                 id: format!("storage-{}", disk.device),
                 title: format!("{} is nearly full", disk.mount_point),
-                detail: "Low free space degrades SSD performance and can cause failures. Run a cleanup.".into(),
+                detail:
+                    "Low free space degrades SSD performance and can cause failures. Run a cleanup."
+                        .into(),
                 category: "storage".into(),
-                severity: if disk.usage >= 92.0 { "critical" } else { "warning" }.into(),
+                severity: if disk.usage >= 92.0 {
+                    "critical"
+                } else {
+                    "warning"
+                }
+                .into(),
                 confidence: confidence((disk.usage - 85.0) / 15.0, 60),
-                evidence: vec![Evidence::new(&format!("{} used", disk.mount_point), format!("{:.0}%", disk.usage), "85%")],
+                evidence: vec![Evidence::new(
+                    &format!("{} used", disk.mount_point),
+                    format!("{:.0}%", disk.usage),
+                    "85%",
+                )],
                 action: Some("/storage".into()),
             });
             break; // one storage rec is enough
@@ -152,17 +183,27 @@ pub fn generate(
     if let Some(b) = battery {
         if b.health_percent < 80.0 {
             // Only offer a charge-limit action if the firmware exposes it.
-            let action = if caps.battery.charge_limit { Some("/battery".into()) } else { None };
+            let action = if caps.battery.charge_limit {
+                Some("/battery".into())
+            } else {
+                None
+            };
             out.push(Recommendation {
                 id: "battery-health".into(),
                 title: "Battery wear is significant".into(),
                 detail: if action.is_some() {
                     "Battery health is below 80%. Cap charging at 80% to slow further wear.".into()
                 } else {
-                    "Battery health is below 80%. Avoid keeping it at 100% on AC to slow wear.".into()
+                    "Battery health is below 80%. Avoid keeping it at 100% on AC to slow wear."
+                        .into()
                 },
                 category: "battery".into(),
-                severity: if b.health_percent < 65.0 { "critical" } else { "warning" }.into(),
+                severity: if b.health_percent < 65.0 {
+                    "critical"
+                } else {
+                    "warning"
+                }
+                .into(),
                 confidence: confidence((80.0 - b.health_percent) / 20.0, 60),
                 evidence: vec![
                     Evidence::new("Battery health", format!("{:.0}%", b.health_percent), "80%"),
@@ -202,13 +243,21 @@ pub fn generate(
             category: "thermal".into(),
             severity: "info".into(),
             confidence: 90,
-            evidence: vec![Evidence::new("CPU temp", format!("{:.0}°C", snapshot.cpu.temperature_c.unwrap_or(0.0)), "82°C")],
+            evidence: vec![Evidence::new(
+                "CPU temp",
+                format!("{:.0}°C", snapshot.cpu.temperature_c.unwrap_or(0.0)),
+                "82°C",
+            )],
             action: None,
         });
     }
 
     // Most severe + most confident first.
-    out.sort_by(|a, b| sev_rank(&b.severity).cmp(&sev_rank(&a.severity)).then(b.confidence.cmp(&a.confidence)));
+    out.sort_by(|a, b| {
+        sev_rank(&b.severity)
+            .cmp(&sev_rank(&a.severity))
+            .then(b.confidence.cmp(&a.confidence))
+    });
     out
 }
 
@@ -230,7 +279,18 @@ mod tests {
         s.memory.usage = mem;
         s.cpu.temperature_c = Some(60.0);
         if storage_usage > 0.0 {
-            s.storage.push(StorageTelemetry { device: "nvme0n1p2".into(), mount_point: "/".into(), filesystem: "btrfs".into(), total_bytes: 100, used_bytes: 0, usage: storage_usage, temperature_c: Some(40.0), read_bytes_sec: 0, write_bytes_sec: 0, smart_status: "passed".into() });
+            s.storage.push(StorageTelemetry {
+                device: "nvme0n1p2".into(),
+                mount_point: "/".into(),
+                filesystem: "btrfs".into(),
+                total_bytes: 100,
+                used_bytes: 0,
+                usage: storage_usage,
+                temperature_c: Some(40.0),
+                read_bytes_sec: 0,
+                write_bytes_sec: 0,
+                smart_status: "passed".into(),
+            });
         }
         s
     }
@@ -239,19 +299,36 @@ mod tests {
         use crate::control::capabilities::*;
         use crate::telemetry::hardware::Vendor;
         HardwareCapabilities {
-            vendor: Vendor::Omen, vendor_label: "HP OMEN".into(),
-            rgb: RgbCapability::default(), fan: FanCapability::default(),
-            power: PowerCapability::default(), battery: BatteryCapability::default(), mux: MuxCapability::default(),
+            vendor: Vendor::Omen,
+            vendor_label: "HP OMEN".into(),
+            rgb: RgbCapability::default(),
+            fan: FanCapability::default(),
+            power: PowerCapability::default(),
+            battery: BatteryCapability::default(),
+            mux: MuxCapability::default(),
         }
     }
 
     fn history_with_cpu_temp(t: f32, n: usize) -> Vec<HistoryPoint> {
-        (0..n).map(|_| { let mut p = HistoryPoint::default(); p.cpu_temp = t; p }).collect()
+        (0..n)
+            .map(|_| {
+                let mut p = HistoryPoint::default();
+                p.cpu_temp = t;
+                p
+            })
+            .collect()
     }
 
     #[test]
     fn flags_hot_cpu_with_evidence_and_confidence() {
-        let recs = generate(&snap(40.0, 0.0), &history_with_cpu_temp(91.0, 40), &caps(), None, None, None);
+        let recs = generate(
+            &snap(40.0, 0.0),
+            &history_with_cpu_temp(91.0, 40),
+            &caps(),
+            None,
+            None,
+            None,
+        );
         let r = recs.iter().find(|r| r.id == "cpu-thermal").unwrap();
         assert_eq!(r.severity, "critical");
         assert!(r.confidence > 50);
@@ -261,13 +338,22 @@ mod tests {
     #[test]
     fn flags_full_storage_and_memory() {
         let recs = generate(&snap(96.0, 93.0), &[], &caps(), None, None, None);
-        assert!(recs.iter().any(|r| r.id == "mem-pressure" && r.severity == "critical"));
+        assert!(recs
+            .iter()
+            .any(|r| r.id == "mem-pressure" && r.severity == "critical"));
         assert!(recs.iter().any(|r| r.id.starts_with("storage")));
     }
 
     #[test]
     fn healthy_system_returns_all_good() {
-        let recs = generate(&snap(40.0, 40.0), &history_with_cpu_temp(50.0, 30), &caps(), None, None, None);
+        let recs = generate(
+            &snap(40.0, 40.0),
+            &history_with_cpu_temp(50.0, 30),
+            &caps(),
+            None,
+            None,
+            None,
+        );
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].id, "all-good");
     }

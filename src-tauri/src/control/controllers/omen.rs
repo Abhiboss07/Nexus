@@ -7,6 +7,7 @@ use crate::control::traits::*;
 use crate::telemetry::hardware::Vendor;
 
 pub struct OmenController {
+    #[allow(dead_code)] // kept for vendor-specific branching
     vendor: Vendor,
 }
 

@@ -7,4 +7,4 @@ pub mod scanner;
 
 pub use mangohud::MangoHudStatus;
 pub use profiles::{GameProfile, GameProfileStore};
-pub use scanner::{scan, launchers, Game, LauncherStatus};
+pub use scanner::{launchers, scan, Game, LauncherStatus};

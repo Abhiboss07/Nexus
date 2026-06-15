@@ -10,8 +10,11 @@ pub struct Rgb {
 }
 
 impl Rgb {
+    /// Convenience constructors used by presets/tests and future callers.
+    #[allow(dead_code)]
     pub const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 };
 
+    #[allow(dead_code)]
     pub fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
     }

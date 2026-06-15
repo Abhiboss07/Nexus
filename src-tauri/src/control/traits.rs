@@ -5,6 +5,11 @@
 //! `ControlError::NotImplemented` — real hardware writes land in Phase 3. The
 //! dry-run/preview path (see `service.rs`) exercises the framework without ever
 //! touching hardware.
+//!
+//! The write-side methods and request structs below are a deliberate, stable API
+//! surface that vendor controllers implement as the project grows; several have
+//! no caller yet, so dead-code analysis is silenced for this interface module.
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -36,7 +41,9 @@ impl fmt::Display for ControlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ControlError::Unsupported => write!(f, "capability not supported on this device"),
-            ControlError::HardwareNotValidated(d) => write!(f, "blocked on unvalidated hardware: {d}"),
+            ControlError::HardwareNotValidated(d) => {
+                write!(f, "blocked on unvalidated hardware: {d}")
+            }
             ControlError::NotImplemented => write!(f, "control not implemented yet (Phase 3)"),
             ControlError::DriverUnavailable(d) => write!(f, "driver unavailable: {d}"),
             ControlError::PermissionDenied => write!(f, "permission denied"),
@@ -62,7 +69,11 @@ pub struct ControlOutcome {
 
 impl ControlOutcome {
     pub fn planned(message: impl Into<String>) -> Self {
-        Self { applied: false, dry_run: true, message: message.into() }
+        Self {
+            applied: false,
+            dry_run: true,
+            message: message.into(),
+        }
     }
 }
 

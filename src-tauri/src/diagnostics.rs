@@ -15,7 +15,11 @@ fn in_group(group: &str) -> bool {
         .arg("-nG")
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().any(|g| g == group))
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .any(|g| g == group)
+        })
         .unwrap_or(false)
 }
 
@@ -78,7 +82,11 @@ pub struct HealthCheck {
 }
 
 fn check(name: &str, status: &str, detail: impl ToString) -> Check {
-    Check { name: name.into(), status: status.into(), detail: detail.to_string() }
+    Check {
+        name: name.into(),
+        status: status.into(),
+        detail: detail.to_string(),
+    }
 }
 
 pub fn health_check(control: &ControlService, telemetry_ok: bool) -> HealthCheck {
@@ -88,16 +96,96 @@ pub fn health_check(control: &ControlService, telemetry_ok: bool) -> HealthCheck
     let omen = std::path::Path::new("/sys/devices/platform/omen-rgb-keyboard").exists();
 
     let mut checks = vec![
-        check("Telemetry stream", if telemetry_ok { "ok" } else { "warn" }, if telemetry_ok { "Live frames flowing" } else { "No frame yet" }),
-        check("CPU sensors", if control.profile().cpu_model.is_empty() { "warn" } else { "ok" }, control.profile().cpu_model),
-        check("GPU (NVIDIA)", if gpu.present { "ok" } else { "warn" }, if gpu.present { format!("CUDA {}", gpu.cuda_version) } else { "Not detected".into() }),
-        check("Power profiles", if caps.power.status.controllable { "ok" } else { "warn" }, &caps.power.status.driver),
-        check("OMEN RGB driver", if omen { "ok" } else { "warn" }, if omen { "omen-rgb-keyboard loaded" } else { "Not present".into() }),
-        check("Fan interface", if caps.fan.status.controllable { "ok" } else { "warn" }, &caps.fan.status.driver),
-        check("Battery", if caps.battery.status.available { "ok" } else { "warn" }, &caps.battery.status.driver),
-        check("Input group", if perms.in_input_group { "ok" } else { "warn" }, if perms.in_input_group { "Member" } else { "Not a member (RGB/fan writes blocked)".into() }),
-        check("RGB write access", if perms.rgb_writable { "ok" } else { "warn" }, if perms.rgb_writable { "Writable" } else { "Needs input group".into() }),
-        check("Fan write access", if perms.fan_writable { "ok" } else { "warn" }, if perms.fan_writable { "Writable" } else { "Needs input group".into() }),
+        check(
+            "Telemetry stream",
+            if telemetry_ok { "ok" } else { "warn" },
+            if telemetry_ok {
+                "Live frames flowing"
+            } else {
+                "No frame yet"
+            },
+        ),
+        check(
+            "CPU sensors",
+            if control.profile().cpu_model.is_empty() {
+                "warn"
+            } else {
+                "ok"
+            },
+            control.profile().cpu_model,
+        ),
+        check(
+            "GPU (NVIDIA)",
+            if gpu.present { "ok" } else { "warn" },
+            if gpu.present {
+                format!("CUDA {}", gpu.cuda_version)
+            } else {
+                "Not detected".into()
+            },
+        ),
+        check(
+            "Power profiles",
+            if caps.power.status.controllable {
+                "ok"
+            } else {
+                "warn"
+            },
+            &caps.power.status.driver,
+        ),
+        check(
+            "OMEN RGB driver",
+            if omen { "ok" } else { "warn" },
+            if omen {
+                "omen-rgb-keyboard loaded"
+            } else {
+                "Not present"
+            },
+        ),
+        check(
+            "Fan interface",
+            if caps.fan.status.controllable {
+                "ok"
+            } else {
+                "warn"
+            },
+            &caps.fan.status.driver,
+        ),
+        check(
+            "Battery",
+            if caps.battery.status.available {
+                "ok"
+            } else {
+                "warn"
+            },
+            &caps.battery.status.driver,
+        ),
+        check(
+            "Input group",
+            if perms.in_input_group { "ok" } else { "warn" },
+            if perms.in_input_group {
+                "Member"
+            } else {
+                "Not a member (RGB/fan writes blocked)"
+            },
+        ),
+        check(
+            "RGB write access",
+            if perms.rgb_writable { "ok" } else { "warn" },
+            if perms.rgb_writable {
+                "Writable"
+            } else {
+                "Needs input group"
+            },
+        ),
+        check(
+            "Fan write access",
+            if perms.fan_writable { "ok" } else { "warn" },
+            if perms.fan_writable {
+                "Writable"
+            } else {
+                "Needs input group"
+            },
+        ),
     ];
     // Storage SMART (best-effort) from a fresh snapshot would require telemetry;
     // keep the check list focused on capability + permission health.
@@ -105,7 +193,11 @@ pub fn health_check(control: &ControlService, telemetry_ok: bool) -> HealthCheck
 
     let passed = checks.iter().filter(|c| c.status == "ok").count();
     let total = checks.len();
-    HealthCheck { passed, total, checks }
+    HealthCheck {
+        passed,
+        total,
+        checks,
+    }
 }
 
 /// A shareable Markdown diagnostics report (no secrets — hardware/capability
@@ -121,20 +213,44 @@ pub fn report_markdown(control: &ControlService, telemetry_ok: bool) -> String {
     s.push_str("# Nexus Control Center — Diagnostics\n\n");
     s.push_str(&format!("Version: {}\n\n", env!("CARGO_PKG_VERSION")));
     s.push_str("## System\n\n");
-    s.push_str(&format!("- Vendor: {} ({})\n", p.vendor_label, p.sys_vendor));
+    s.push_str(&format!(
+        "- Vendor: {} ({})\n",
+        p.vendor_label, p.sys_vendor
+    ));
     s.push_str(&format!("- Product: {}\n", p.product_name));
     s.push_str(&format!("- OS: {}\n", p.os));
     s.push_str(&format!("- CPU: {}\n", p.cpu_model));
-    s.push_str(&format!("- GPU: {} (CUDA {})\n\n", p.gpu_name, gpu.cuda_version));
+    s.push_str(&format!(
+        "- GPU: {} (CUDA {})\n\n",
+        p.gpu_name, gpu.cuda_version
+    ));
     s.push_str("## Capabilities\n\n");
-    s.push_str(&format!("- Power control: {}\n", caps.power.status.controllable));
-    s.push_str(&format!("- RGB control: {} ({})\n", caps.rgb.status.controllable, caps.rgb.status.driver));
-    s.push_str(&format!("- Fan curve: {} ({})\n", caps.fan.status.controllable, caps.fan.status.driver));
-    s.push_str(&format!("- Battery charge limit: {}\n\n", caps.battery.charge_limit));
+    s.push_str(&format!(
+        "- Power control: {}\n",
+        caps.power.status.controllable
+    ));
+    s.push_str(&format!(
+        "- RGB control: {} ({})\n",
+        caps.rgb.status.controllable, caps.rgb.status.driver
+    ));
+    s.push_str(&format!(
+        "- Fan curve: {} ({})\n",
+        caps.fan.status.controllable, caps.fan.status.driver
+    ));
+    s.push_str(&format!(
+        "- Battery charge limit: {}\n\n",
+        caps.battery.charge_limit
+    ));
     s.push_str("## Permissions\n\n");
     s.push_str(&format!("- input group: {}\n", perms.in_input_group));
-    s.push_str(&format!("- RGB writable: {}  ·  Fan writable: {}\n\n", perms.rgb_writable, perms.fan_writable));
-    s.push_str(&format!("## Health Check ({}/{} OK)\n\n", hc.passed, hc.total));
+    s.push_str(&format!(
+        "- RGB writable: {}  ·  Fan writable: {}\n\n",
+        perms.rgb_writable, perms.fan_writable
+    ));
+    s.push_str(&format!(
+        "## Health Check ({}/{} OK)\n\n",
+        hc.passed, hc.total
+    ));
     for c in &hc.checks {
         s.push_str(&format!("- [{}] {} — {}\n", c.status, c.name, c.detail));
     }

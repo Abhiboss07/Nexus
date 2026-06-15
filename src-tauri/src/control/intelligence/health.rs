@@ -38,15 +38,25 @@ fn status_for(score: u8) -> &'static str {
 }
 
 fn thermal_score(temp: f32) -> u8 {
-    (100.0 - (temp - 55.0).max(0.0) * 1.6).clamp(0.0, 100.0).round() as u8
+    (100.0 - (temp - 55.0).max(0.0) * 1.6)
+        .clamp(0.0, 100.0)
+        .round() as u8
 }
 
 fn pressure_score(usage: f32) -> u8 {
-    (100.0 - (usage - 60.0).max(0.0) * 1.8).clamp(0.0, 100.0).round() as u8
+    (100.0 - (usage - 60.0).max(0.0) * 1.8)
+        .clamp(0.0, 100.0)
+        .round() as u8
 }
 
 fn sub(name: &str, score: u8, detail: String, weight: f32) -> Subsystem {
-    Subsystem { name: name.into(), score, status: status_for(score).into(), detail, weight }
+    Subsystem {
+        name: name.into(),
+        score,
+        status: status_for(score).into(),
+        detail,
+        weight,
+    }
 }
 
 pub fn compute(
@@ -58,35 +68,81 @@ pub fn compute(
     let mut subs: Vec<Subsystem> = Vec::new();
 
     // CPU — thermal headroom.
-    let cpu_temp = thermal.and_then(|t| t.cpu_c).or(snapshot.cpu.temperature_c).unwrap_or(0.0);
-    subs.push(sub("CPU", thermal_score(cpu_temp), format!("{cpu_temp:.0}°C · {:.0}% load", snapshot.cpu.usage), 0.22));
+    let cpu_temp = thermal
+        .and_then(|t| t.cpu_c)
+        .or(snapshot.cpu.temperature_c)
+        .unwrap_or(0.0);
+    subs.push(sub(
+        "CPU",
+        thermal_score(cpu_temp),
+        format!("{cpu_temp:.0}°C · {:.0}% load", snapshot.cpu.usage),
+        0.22,
+    ));
 
     // GPU — from its intelligence (already blends thermal + VRAM + link).
     if let Some(g) = gpu {
-        subs.push(sub("GPU", g.health_score, format!("score {} · {:.0}% VRAM", g.gaming_readiness, g.vram_pressure), 0.2));
+        subs.push(sub(
+            "GPU",
+            g.health_score,
+            format!(
+                "score {} · {:.0}% VRAM",
+                g.gaming_readiness, g.vram_pressure
+            ),
+            0.2,
+        ));
     }
 
     // Memory — pressure.
-    subs.push(sub("Memory", pressure_score(snapshot.memory.usage), format!("{:.0}% used", snapshot.memory.usage), 0.15));
+    subs.push(sub(
+        "Memory",
+        pressure_score(snapshot.memory.usage),
+        format!("{:.0}% used", snapshot.memory.usage),
+        0.15,
+    ));
 
     // Storage — usage + SMART.
-    if let Some(disk) = snapshot.storage.iter().max_by(|a, b| a.usage.total_cmp(&b.usage)) {
+    if let Some(disk) = snapshot
+        .storage
+        .iter()
+        .max_by(|a, b| a.usage.total_cmp(&b.usage))
+    {
         let mut s = pressure_score(disk.usage);
         if disk.smart_status == "failing" {
             s = s.min(20);
         }
-        subs.push(sub("Storage", s, format!("{} {:.0}% · SMART {}", disk.mount_point, disk.usage, disk.smart_status), 0.13));
+        subs.push(sub(
+            "Storage",
+            s,
+            format!(
+                "{} {:.0}% · SMART {}",
+                disk.mount_point, disk.usage, disk.smart_status
+            ),
+            0.13,
+        ));
     }
 
     // Battery — state of health.
     if let Some(b) = battery {
-        subs.push(sub("Battery", b.score, format!("{:.0}% health · {} cycles", b.health_percent, b.cycle_count), 0.18));
+        subs.push(sub(
+            "Battery",
+            b.score,
+            format!("{:.0}% health · {} cycles", b.health_percent, b.cycle_count),
+            0.18,
+        ));
     }
 
     // Thermal — overall hottest.
     if let Some(t) = thermal {
-        let hottest = [t.cpu_c, t.gpu_c, t.ssd_c].into_iter().flatten().fold(0.0_f32, f32::max);
-        subs.push(sub("Thermals", thermal_score(hottest), format!("peak {hottest:.0}°C"), 0.12));
+        let hottest = [t.cpu_c, t.gpu_c, t.ssd_c]
+            .into_iter()
+            .flatten()
+            .fold(0.0_f32, f32::max);
+        subs.push(sub(
+            "Thermals",
+            thermal_score(hottest),
+            format!("peak {hottest:.0}°C"),
+            0.12,
+        ));
     }
 
     // Weighted overall (renormalize over present subsystems).
