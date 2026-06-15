@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Gauge,
@@ -17,6 +18,13 @@ import {
   Copy,
   RefreshCw,
   Plug,
+  Download,
+  ExternalLink,
+  Code,
+  Sparkles,
+  GitBranch,
+  Bot,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -45,6 +53,13 @@ const ICON: Record<string, LucideIcon> = {
   flatpak: Package,
   snap: Package,
   "nvidia-container-toolkit": Boxes,
+  vscode: Code,
+  cursor: Code,
+  jetbrains: Code,
+  git: GitBranch,
+  ollama: Bot,
+  lmstudio: Sparkles,
+  "open-webui": Bot,
   "display-server": Monitor,
 };
 
@@ -53,11 +68,13 @@ const CATEGORIES: { id: IntegrationCategory; label: string; icon: LucideIcon }[]
   { id: "hardware", label: "Hardware Control", icon: Cpu },
   { id: "launchers", label: "Game Launchers", icon: Gamepad2 },
   { id: "containers", label: "Containers & Packaging", icon: Boxes },
+  { id: "development", label: "Development", icon: Code },
+  { id: "ai", label: "Local AI", icon: Sparkles },
   { id: "system", label: "System", icon: Monitor },
 ];
 
 export default function IntegrationsPage() {
-  const { items, loading, refresh } = useIntegrations();
+  const { items, loading, refresh, install } = useIntegrations();
   const detected = items.filter((i) => i.detected).length;
 
   return (
@@ -91,7 +108,7 @@ export default function IntegrationsPage() {
               />
               <div className="grid grid-cols-1 gap-md sm:grid-cols-2 lg:grid-cols-3">
                 {group.map((it) => (
-                  <IntegrationCard key={it.id} item={it} />
+                  <IntegrationCard key={it.id} item={it} install={install} />
                 ))}
               </div>
             </motion.section>
@@ -102,13 +119,29 @@ export default function IntegrationsPage() {
   );
 }
 
-function IntegrationCard({ item }: { item: Integration }) {
+function IntegrationCard({ item, install }: { item: Integration; install: (i: Integration) => Promise<string> }) {
   const Icon = ICON[item.id] ?? Package;
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function doInstall() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const text = await install(item);
+      setMsg({ ok: true, text });
+    } catch (e) {
+      setMsg({ ok: false, text: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <GlassCard
       interactive
       padding="md"
-      className={cn("flex items-start gap-md", !item.detected && "opacity-80")}
+      className={cn("flex items-start gap-md", !item.detected && "opacity-95")}
     >
       <div
         className={cn(
@@ -131,19 +164,43 @@ function IntegrationCard({ item }: { item: Integration }) {
             </span>
           )}
         </div>
+
         {item.detected ? (
           <p className="mt-2xs truncate text-2xs text-content-muted">{item.detail || "Detected"}</p>
-        ) : item.hint ? (
-          <button
-            onClick={() => navigator.clipboard?.writeText(item.hint)}
-            className="group mt-2xs flex w-full items-center gap-xs rounded-md bg-surface-sunken/60 px-xs py-2xs text-left"
-            title="Copy install command"
-          >
-            <code className="min-w-0 flex-1 truncate text-2xs text-content-subtle">{item.hint}</code>
-            <Copy className="h-3 w-3 shrink-0 text-content-subtle transition-colors group-hover:text-content" />
-          </button>
         ) : (
-          <p className="mt-2xs text-2xs text-content-subtle">Not available</p>
+          <div className="mt-xs space-y-xs">
+            {item.hint && (
+              <button
+                onClick={() => navigator.clipboard?.writeText(item.hint)}
+                className="group flex w-full items-center gap-xs rounded-md bg-surface-sunken/60 px-xs py-2xs text-left"
+                title="Copy install command"
+              >
+                <code className="min-w-0 flex-1 truncate text-2xs text-content-subtle">{item.hint}</code>
+                <Copy className="h-3 w-3 shrink-0 text-content-subtle transition-colors group-hover:text-content" />
+              </button>
+            )}
+            <div className="flex items-center gap-xs">
+              {item.flatpakId && (
+                <Button variant="primary" size="sm" disabled={busy} onClick={doInstall}>
+                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  Install
+                </Button>
+              )}
+              {item.docUrl && (
+                <a
+                  href={item.docUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-xs rounded-md border border-border px-sm py-1 text-2xs font-medium text-content-muted transition-colors hover:text-content"
+                >
+                  <ExternalLink className="h-3 w-3" /> Docs
+                </a>
+              )}
+            </div>
+            {msg && (
+              <p className={cn("text-2xs", msg.ok ? "text-success" : "text-danger")}>{msg.text}</p>
+            )}
+          </div>
         )}
       </div>
     </GlassCard>

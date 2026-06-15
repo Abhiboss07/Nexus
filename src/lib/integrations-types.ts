@@ -5,6 +5,8 @@ export type IntegrationCategory =
   | "hardware"
   | "launchers"
   | "containers"
+  | "development"
+  | "ai"
   | "system";
 
 export interface Integration {
@@ -14,4 +16,7 @@ export interface Integration {
   detected: boolean;
   detail: string;
   hint: string;
+  docUrl: string;
+  /** Non-empty when the tool can be installed one-click via Flatpak. */
+  flatpakId: string;
 }

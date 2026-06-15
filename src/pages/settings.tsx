@@ -14,43 +14,70 @@ import {
   Check,
   Rocket,
   Stethoscope,
+  Gauge,
+  Bot,
+  Download,
+  FolderOpen,
+  ExternalLink,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
 import { GlassCard } from "@/components/ui/glass";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { StatRow } from "@/components/ui/section";
 import { THEMES } from "@/config/themes";
 import { BACKGROUNDS } from "@/config/backgrounds";
 import { useThemeStore } from "@/store/theme-store";
-import { useCapabilities, useHardwareProfile } from "@/hooks/use-telemetry";
+import {
+  useCapabilities,
+  useHardwareProfile,
+  useMemory,
+  useGpu,
+  useBattery,
+} from "@/hooks/use-telemetry";
+import { useIntegrations } from "@/hooks/use-integrations";
 import {
   isTauri,
   getAutostart,
   setAutostart,
   appUpdateInfo,
+  checkForUpdate,
+  setPollInterval,
+  listPlugins,
+  setPluginEnabled,
+  getPluginsDir,
+  listNexusProfiles,
+  applyNexusProfile,
+  getActiveProfile,
 } from "@/lib/ipc";
+import type { UpdateStatus } from "@/lib/system-types";
+import type { Plugin } from "@/lib/plugins-types";
+import type { NexusProfile } from "@/lib/power-types";
 import { CapabilityBadge } from "@/components/ui/capability-gate";
+import { formatBytes } from "@/lib/format";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
-/** Settings architecture — sections future modules slot into. */
 const SETTINGS_SECTIONS = [
-  { id: "appearance", label: "Appearance", icon: Palette, ready: true },
-  { id: "system", label: "System", icon: Monitor, ready: false },
-  { id: "performance", label: "Performance", icon: Cpu, ready: false },
-  { id: "battery", label: "Battery", icon: BatteryCharging, ready: false },
-  { id: "ai", label: "AI", icon: Sparkles, ready: false },
-  { id: "updates", label: "Updates", icon: RefreshCw, ready: false },
-  { id: "plugins", label: "Plugins", icon: Puzzle, ready: false },
-  { id: "themes", label: "Themes", icon: Layers, ready: true },
-  { id: "profiles", label: "Profiles", icon: UserCog, ready: false },
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "system", label: "System", icon: Monitor },
+  { id: "performance", label: "Performance", icon: Gauge },
+  { id: "battery", label: "Battery", icon: BatteryCharging },
+  { id: "ai", label: "AI", icon: Sparkles },
+  { id: "updates", label: "Updates", icon: RefreshCw },
+  { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "profiles", label: "Profiles", icon: UserCog },
 ];
 
 export default function SettingsPage() {
   const { theme, setTheme, background, setBackground, density, setDensity } =
     useThemeStore();
-  const caps = useCapabilities();
-  const profile = useHardwareProfile();
 
   return (
     <div>
@@ -71,19 +98,13 @@ export default function SettingsPage() {
               >
                 <s.icon className="h-4 w-4" />
                 <span className="flex-1">{s.label}</span>
-                {!s.ready && <Badge size="sm">Soon</Badge>}
               </a>
             ))}
           </nav>
         </GlassCard>
 
         {/* Panels */}
-        <motion.div
-          variants={stagger(0.06)}
-          initial="hidden"
-          animate="show"
-          className="space-y-lg"
-        >
+        <motion.div variants={stagger(0.06)} initial="hidden" animate="show" className="space-y-lg">
           {/* Appearance — Theme */}
           <motion.section variants={fadeUp} id="appearance">
             <GlassCard padding="lg">
@@ -98,17 +119,10 @@ export default function SettingsPage() {
                     onClick={() => setTheme(t.id)}
                     className={cn(
                       "group relative overflow-hidden rounded-lg border p-sm text-left transition-all",
-                      theme === t.id
-                        ? "border-accent/60 shadow-glow"
-                        : "border-border hover:border-border-strong",
+                      theme === t.id ? "border-accent/60 shadow-glow" : "border-border hover:border-border-strong",
                     )}
                   >
-                    <div
-                      className="mb-sm h-16 rounded-md"
-                      style={{
-                        background: `linear-gradient(120deg, ${t.swatch[1]}, ${t.swatch[2]})`,
-                      }}
-                    />
+                    <div className="mb-sm h-16 rounded-md" style={{ background: `linear-gradient(120deg, ${t.swatch[1]}, ${t.swatch[2]})` }} />
                     <p className="flex items-center gap-xs text-sm font-medium text-content">
                       {t.label}
                       {theme === t.id && <Check className="h-3.5 w-3.5 text-accent" />}
@@ -117,6 +131,16 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
+              <div className="mt-md flex flex-wrap items-center gap-md">
+                <div className="flex items-center gap-sm">
+                  <span className="text-sm text-content-muted">Density</span>
+                  <div className="flex rounded-md border border-border p-2xs">
+                    {(["comfortable", "compact"] as const).map((dn) => (
+                      <button key={dn} onClick={() => setDensity(dn)} className={cn("rounded px-md py-xs text-sm font-medium capitalize transition-colors", density === dn ? "bg-accent/15 text-accent-strong" : "text-content-muted hover:text-content")}>{dn}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </GlassCard>
           </motion.section>
 
@@ -124,116 +148,375 @@ export default function SettingsPage() {
           <motion.section variants={fadeUp} id="themes">
             <GlassCard padding="lg">
               <h3 className="text-lg font-semibold text-content">Background</h3>
-              <p className="mb-md text-sm text-content-muted">
-                Pick an ambient style. Lower-cost options suit battery saver.
-              </p>
+              <p className="mb-md text-sm text-content-muted">Pick an ambient style. Lower-cost options suit battery saver.</p>
               <div className="grid grid-cols-2 gap-sm sm:grid-cols-3">
                 {BACKGROUNDS.map((b) => (
-                  <button
-                    key={b.id}
-                    onClick={() => setBackground(b.id)}
-                    className={cn(
-                      "rounded-lg border p-md text-left transition-all",
-                      background === b.id
-                        ? "border-accent/60 bg-accent/8"
-                        : "border-border hover:border-border-strong",
-                    )}
-                  >
+                  <button key={b.id} onClick={() => setBackground(b.id)} className={cn("rounded-lg border p-md text-left transition-all", background === b.id ? "border-accent/60 bg-accent/8" : "border-border hover:border-border-strong")}>
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium text-content">{b.label}</p>
-                      <Badge
-                        size="sm"
-                        variant={b.cost === "high" ? "warning" : "neutral"}
-                      >
-                        {b.cost}
-                      </Badge>
+                      <Badge size="sm" variant={b.cost === "high" ? "warning" : "neutral"}>{b.cost}</Badge>
                     </div>
-                    <p className="mt-2xs text-2xs text-content-subtle">
-                      {b.description}
-                    </p>
+                    <p className="mt-2xs text-2xs text-content-subtle">{b.description}</p>
                   </button>
                 ))}
               </div>
             </GlassCard>
           </motion.section>
 
-          {/* Density toggle */}
-          <motion.section variants={fadeUp}>
-            <GlassCard padding="lg" className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-semibold text-content">Density</h3>
-                <p className="text-sm text-content-muted">
-                  Comfortable spacing, or compact for more on screen.
-                </p>
-              </div>
-              <div className="flex rounded-md border border-border p-2xs">
-                {(["comfortable", "compact"] as const).map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setDensity(d)}
-                    className={cn(
-                      "rounded px-md py-xs text-sm font-medium capitalize transition-colors",
-                      density === d
-                        ? "bg-accent/15 text-accent-strong"
-                        : "text-content-muted hover:text-content",
-                    )}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </GlassCard>
-          </motion.section>
-
-          {/* Device & detected control capabilities */}
-          <motion.section variants={fadeUp} id="system">
-            <GlassCard padding="lg">
-              <div className="mb-md flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-content">Device & Capabilities</h3>
-                  <p className="text-sm text-content-muted">
-                    {profile ? `${profile.vendorLabel} · ${profile.cpuModel}` : "Detecting hardware…"}
-                  </p>
-                </div>
-                {profile && <Badge variant="accent">{profile.gpuName.replace("NVIDIA GeForce ", "")}</Badge>}
-              </div>
-
-              <div className="grid grid-cols-1 gap-sm sm:grid-cols-2">
-                {(
-                  [
-                    { key: "power", label: "Power Profiles", status: caps?.power.status },
-                    { key: "fan", label: "Fan Control", status: caps?.fan.status },
-                    { key: "rgb", label: "RGB Lighting", status: caps?.rgb.status },
-                    { key: "battery", label: "Battery Charge Limit", status: caps?.battery.status },
-                    { key: "mux", label: "GPU MUX Switch", status: caps?.mux.status },
-                  ] as const
-                ).map((c) => (
-                  <div key={c.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
-                    <div>
-                      <p className="text-sm font-medium text-content">{c.label}</p>
-                      <p className="text-2xs text-content-subtle">
-                        {c.status?.driver ? `via ${c.status.driver}` : c.status?.notes || "—"}
-                      </p>
-                    </div>
-                    <CapabilityBadge status={c.status} />
-                  </div>
-                ))}
-              </div>
-              <p className="mt-md text-2xs text-content-subtle">
-                Controls across Nexus are enabled only when the matching capability is detected.
-              </p>
-            </GlassCard>
-          </motion.section>
-
-          {/* Application */}
-          <motion.section variants={fadeUp}>
-            <ApplicationSettings />
-          </motion.section>
+          <motion.section variants={fadeUp} id="system"><SystemPanel /></motion.section>
+          <motion.section variants={fadeUp} id="performance"><PerformancePanel /></motion.section>
+          <motion.section variants={fadeUp} id="battery"><BatteryPanel /></motion.section>
+          <motion.section variants={fadeUp} id="ai"><AiPanel /></motion.section>
+          <motion.section variants={fadeUp} id="updates"><UpdatesPanel /></motion.section>
+          <motion.section variants={fadeUp} id="plugins"><PluginsPanel /></motion.section>
+          <motion.section variants={fadeUp} id="profiles"><ProfilesPanel /></motion.section>
+          <motion.section variants={fadeUp}><ApplicationSettings /></motion.section>
         </motion.div>
       </div>
     </div>
   );
 }
+
+/* ------------------------------- System ---------------------------------- */
+
+function SystemPanel() {
+  const profile = useHardwareProfile();
+  const caps = useCapabilities();
+  const mem = useMemory();
+  const gpu = useGpu();
+  const [kernel, setKernel] = useState<string>("");
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    import("@tauri-apps/plugin-os").then((os) => {
+      Promise.resolve(os.version()).then((v) => setKernel(String(v))).catch(() => {});
+    }).catch(() => {});
+  }, []);
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">System</h3>
+      <p className="mb-md text-sm text-content-muted">Operating system, hardware & driver inventory.</p>
+      <div className="grid grid-cols-1 gap-x-lg sm:grid-cols-2">
+        <div>
+          <StatRow label="OS" value={profile?.os ?? "—"} />
+          <StatRow label="Kernel" value={kernel || (isTauri() ? "…" : "n/a in browser")} />
+          <StatRow label="Vendor" value={profile ? `${profile.vendorLabel} · ${profile.productName}` : "—"} />
+          <StatRow label="Board" value={profile?.boardName ?? "—"} />
+        </div>
+        <div>
+          <StatRow label="CPU" value={profile?.cpuModel ?? "—"} />
+          <StatRow label="Memory" value={mem ? `${formatBytes(mem.totalBytes, 0)} total` : "—"} />
+          <StatRow label="GPU" value={profile?.gpuName ?? "—"} />
+          <StatRow label="VRAM" value={gpu ? formatBytes(gpu.vramTotalMb * 1048576, 0) : "—"} />
+        </div>
+      </div>
+      <div className="mt-md">
+        <p className="mb-xs text-2xs uppercase tracking-wider text-content-subtle">Detected control drivers</p>
+        <div className="grid grid-cols-1 gap-sm sm:grid-cols-2">
+          {([
+            { label: "Power Profiles", status: caps?.power.status },
+            { label: "Fan Control", status: caps?.fan.status },
+            { label: "RGB Lighting", status: caps?.rgb.status },
+            { label: "Battery Charge Limit", status: caps?.battery.status },
+            { label: "GPU MUX Switch", status: caps?.mux.status },
+          ]).map((c) => (
+            <div key={c.label} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-content">{c.label}</p>
+                <p className="truncate text-2xs text-content-subtle">{c.status?.driver ? `via ${c.status.driver}` : c.status?.notes || "—"}</p>
+              </div>
+              <CapabilityBadge status={c.status} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+/* ----------------------------- Performance ------------------------------- */
+
+function PerformancePanel() {
+  const { background, setBackground, reducedMotion, setReducedMotion } = useThemeStore();
+  const [intervalMs, setIntervalMs] = useState(1500);
+
+  function applyInterval(ms: number) {
+    setIntervalMs(ms);
+    if (isTauri()) setPollInterval(ms).catch(() => {});
+  }
+
+  const bgQuality = BACKGROUNDS.find((b) => b.id === background);
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">Performance</h3>
+      <p className="mb-md text-sm text-content-muted">Tune Nexus's own resource use.</p>
+
+      <div className="rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <div className="mb-xs flex items-center justify-between">
+          <span className="text-sm font-medium text-content">Telemetry refresh interval</span>
+          <span className="text-xs font-semibold tabular-nums text-accent-strong">{(intervalMs / 1000).toFixed(2)}s</span>
+        </div>
+        <Slider value={[intervalMs]} min={250} max={5000} step={250} onValueChange={(v) => applyInterval(v[0])} />
+        <p className="mt-xs text-2xs text-content-subtle">Faster = more responsive graphs; slower = lower CPU & battery use.</p>
+      </div>
+
+      <label className="mt-md flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <span>
+          <span className="block text-sm font-medium text-content">Reduce animations</span>
+          <span className="block text-2xs text-content-subtle">Disables motion effects across the app (better on battery).</span>
+        </span>
+        <Switch checked={reducedMotion} onCheckedChange={setReducedMotion} />
+      </label>
+
+      <div className="mt-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <p className="mb-xs text-sm font-medium text-content">Background effects quality</p>
+        <div className="flex flex-wrap gap-sm">
+          {BACKGROUNDS.map((b) => (
+            <button key={b.id} onClick={() => setBackground(b.id)} className={cn("rounded-md border px-sm py-xs text-xs font-medium transition-colors", background === b.id ? "border-accent/60 bg-accent/10 text-accent-strong" : "border-border text-content-muted hover:text-content")}>{b.label}</button>
+          ))}
+        </div>
+        <p className="mt-xs text-2xs text-content-subtle">Current cost: <span className="capitalize">{bgQuality?.cost ?? "—"}</span>. Use “Solid” or low-cost on battery.</p>
+      </div>
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- Battery --------------------------------- */
+
+function BatteryPanel() {
+  const battery = useBattery();
+  return (
+    <GlassCard padding="lg">
+      <div className="mb-md flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-content">Battery</h3>
+          <p className="text-sm text-content-muted">Quick stats & calibration guidance.</p>
+        </div>
+        <Link to="/battery"><Button variant="solid" size="sm"><BatteryCharging className="h-4 w-4" /> Open Battery Center</Button></Link>
+      </div>
+      {battery?.present ? (
+        <div className="grid grid-cols-1 gap-x-lg sm:grid-cols-2">
+          <div>
+            <StatRow label="Charge" value={`${battery.chargePercent.toFixed(0)}%`} />
+            <StatRow label="Status" value={battery.status} />
+            <StatRow label="Health" value={`${battery.healthPercent.toFixed(0)}%`} />
+          </div>
+          <div>
+            <StatRow label="Cycles" value={`${battery.cycleCount}`} />
+            <StatRow label="Full capacity" value={`${battery.energyFullWh.toFixed(1)} Wh`} />
+            <StatRow label="Design" value={`${battery.energyDesignWh.toFixed(1)} Wh`} />
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-content-muted">No battery detected.</p>
+      )}
+      <div className="mt-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <p className="mb-xs text-sm font-medium text-content">Calibration guide</p>
+        <ol className="ml-4 list-decimal space-y-2xs text-2xs text-content-muted">
+          <li>Charge to 100% and keep it plugged in for ~2 hours.</li>
+          <li>Unplug and discharge with normal use until it auto-shuts down.</li>
+          <li>Leave it off for ~5 hours, then charge uninterrupted to 100%.</li>
+          <li>This re-syncs the battery gauge — do it every few months, not daily.</li>
+        </ol>
+      </div>
+    </GlassCard>
+  );
+}
+
+/* --------------------------------- AI ------------------------------------ */
+
+function AiPanel() {
+  const { items } = useIntegrations();
+  const ai = items.filter((i) => i.category === "ai");
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">Local AI</h3>
+      <p className="mb-md text-sm text-content-muted">Detected on-device inference tools. Nexus reasons fully offline.</p>
+      <div className="grid grid-cols-1 gap-sm sm:grid-cols-3">
+        {ai.map((i) => (
+          <div key={i.id} className="rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+            <div className="flex items-center gap-sm">
+              <Bot className="h-5 w-5 text-accent" />
+              <p className="flex-1 text-sm font-semibold text-content">{i.name}</p>
+              <Badge size="sm" variant={i.detected ? "success" : "neutral"}>{i.detected ? "found" : "missing"}</Badge>
+            </div>
+            <p className="mt-xs truncate text-2xs text-content-muted">{i.detected ? (i.detail || "installed") : i.hint}</p>
+            {i.docUrl && <a href={i.docUrl} target="_blank" rel="noreferrer" className="mt-xs inline-flex items-center gap-xs text-2xs text-accent-strong hover:underline"><ExternalLink className="h-3 w-3" /> Docs</a>}
+          </div>
+        ))}
+        {ai.length === 0 && <p className="text-sm text-content-muted">Detecting…</p>}
+      </div>
+      <p className="mt-md text-2xs text-content-subtle">Manage all integrations in <Link to="/integrations" className="text-accent-strong hover:underline">System Integrations</Link>.</p>
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- Updates --------------------------------- */
+
+function UpdatesPanel() {
+  const [version, setVersion] = useState("0.1.0");
+  const [channel, setChannel] = useState("beta");
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    appUpdateInfo().then((u) => { setVersion(u.currentVersion); setChannel(u.channel); }).catch(() => {});
+  }, []);
+
+  async function check() {
+    setBusy(true); setErr(null); setStatus(null);
+    try {
+      if (!isTauri()) { setStatus({ available: false, currentVersion: version, latestVersion: null, notes: null }); }
+      else setStatus(await checkForUpdate());
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <div className="mb-md flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-content">Updates</h3>
+          <p className="text-sm text-content-muted">Signed, minisign-verified in-app updates.</p>
+        </div>
+        <Badge variant="neutral">v{version}</Badge>
+      </div>
+
+      <div className="mb-md flex items-center gap-sm">
+        <span className="text-sm text-content-muted">Release channel</span>
+        <div className="flex rounded-md border border-border p-2xs">
+          {(["stable", "beta"] as const).map((c) => (
+            <button key={c} onClick={() => setChannel(c)} className={cn("rounded px-md py-xs text-sm font-medium capitalize transition-colors", channel === c ? "bg-accent/15 text-accent-strong" : "text-content-muted hover:text-content")}>{c}</button>
+          ))}
+        </div>
+      </div>
+
+      <Button variant="primary" size="md" onClick={check} disabled={busy}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Check for updates
+      </Button>
+
+      {err && <p className="mt-sm flex items-center gap-xs text-sm text-danger"><AlertTriangle className="h-4 w-4" /> {err}</p>}
+      {status && (
+        <div className="mt-sm flex items-center gap-xs text-sm">
+          {status.available ? (
+            <span className="flex items-center gap-xs text-accent-strong"><Download className="h-4 w-4" /> Update available: v{status.latestVersion}</span>
+          ) : (
+            <span className="flex items-center gap-xs text-success"><CheckCircle2 className="h-4 w-4" /> You're on the latest version.</span>
+          )}
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- Plugins --------------------------------- */
+
+function PluginsPanel() {
+  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [dir, setDir] = useState("");
+
+  useEffect(() => {
+    if (!isTauri()) { setDir("~/.config/nexus/plugins"); return; }
+    listPlugins().then(setPlugins).catch(() => {});
+    getPluginsDir().then(setDir).catch(() => {});
+  }, []);
+
+  async function toggle(p: Plugin, enabled: boolean) {
+    setPlugins((ps) => ps.map((x) => x.id === p.id ? { ...x, enabled } : x));
+    if (isTauri()) await setPluginEnabled(p.id, enabled).catch(() => {});
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">Plugins</h3>
+      <p className="mb-md text-sm text-content-muted">Drop a plugin manifest (<code className="text-2xs">.json</code>) into the plugins folder to extend Nexus.</p>
+      {plugins.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-lg text-center">
+          <Puzzle className="mx-auto h-8 w-8 text-content-subtle" />
+          <p className="mt-sm text-sm text-content-muted">No plugins installed yet.</p>
+          <code className="mt-xs inline-block rounded bg-surface-sunken px-sm py-xs text-2xs text-content-subtle">{dir}</code>
+        </div>
+      ) : (
+        <div className="space-y-sm">
+          {plugins.map((p) => (
+            <div key={p.id} className="flex items-center gap-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+              <Puzzle className="h-5 w-5 text-accent" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-content">{p.name} <span className="text-2xs text-content-subtle">{p.version}</span></p>
+                <p className="truncate text-2xs text-content-muted">{p.description || p.kind || p.author}</p>
+              </div>
+              <Switch checked={p.enabled} onCheckedChange={(v) => toggle(p, v)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- Profiles -------------------------------- */
+
+const PROFILE_ICON: Record<string, LucideIcon> = {
+  gaming: Rocket, silent: Gauge, balanced: Layers, performance: Cpu,
+};
+
+function ProfilesPanel() {
+  const [profiles, setProfiles] = useState<NexusProfile[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      setProfiles([
+        { id: "gaming", name: "Gaming", icon: "rocket", builtin: true, power: "performance", rgb: null, fan: "Gaming", gpu: null },
+        { id: "silent", name: "Silent", icon: "gauge", builtin: true, power: "power-saver", rgb: null, fan: "Silent", gpu: null },
+        { id: "balanced", name: "Balanced", icon: "layers", builtin: true, power: "balanced", rgb: null, fan: "Balanced", gpu: null },
+        { id: "performance", name: "Performance", icon: "cpu", builtin: true, power: "performance", rgb: null, fan: "Turbo", gpu: null },
+      ]);
+      return;
+    }
+    listNexusProfiles().then(setProfiles).catch(() => {});
+    getActiveProfile().then(setActive).catch(() => {});
+  }, []);
+
+  async function apply(p: NexusProfile) {
+    setActive(p.id);
+    if (!isTauri()) { setMsg(`Demo — would apply ${p.name}.`); return; }
+    try { const out = await applyNexusProfile(p.id); setMsg(out.message || `Applied ${p.name}.`); }
+    catch (e) { setMsg(String(e)); }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">Profiles</h3>
+      <p className="mb-md text-sm text-content-muted">One-tap system profiles composing power, fan & lighting.</p>
+      {msg && <p className="mb-sm rounded-md bg-surface-sunken/50 px-sm py-xs text-2xs text-content-muted">{msg}</p>}
+      <div className="grid grid-cols-2 gap-md sm:grid-cols-4">
+        {profiles.map((p) => {
+          const Icon = PROFILE_ICON[p.id] ?? Layers;
+          const isActive = active === p.id;
+          return (
+            <button key={p.id} onClick={() => apply(p)} className={cn("flex flex-col items-center gap-xs rounded-lg border p-md text-center transition-all", isActive ? "border-accent/60 bg-accent/8 shadow-glow" : "border-border hover:border-border-strong")}>
+              <Icon className={cn("h-6 w-6", isActive ? "text-accent-strong" : "text-content-muted")} />
+              <span className="text-sm font-medium text-content">{p.name}</span>
+              <span className="text-2xs text-content-subtle">{p.power ?? "—"}{p.fan ? ` · ${p.fan}` : ""}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-md text-2xs text-content-subtle">Edit profiles & automation in <Link to="/performance" className="text-accent-strong hover:underline">Performance</Link>.</p>
+    </GlassCard>
+  );
+}
+
+/* ----------------------------- Application -------------------------------- */
 
 function ApplicationSettings() {
   const [autostart, setAuto] = useState(false);
@@ -255,7 +538,7 @@ function ApplicationSettings() {
       <div className="mb-md flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-content">Application</h3>
-          <p className="text-sm text-content-muted">Startup, tray & updates</p>
+          <p className="text-sm text-content-muted">Startup, tray & diagnostics</p>
         </div>
         <Badge variant="neutral">v{version ?? "0.1.0"}</Badge>
       </div>
@@ -276,10 +559,10 @@ function ApplicationSettings() {
           <Stethoscope className="h-4 w-4 text-content-muted" />
           <span>
             <span className="block text-sm font-medium text-content">Run diagnostics</span>
-            <span className="block text-2xs text-content-subtle">Health check, permissions & diagnostics export.</span>
+            <span className="block text-2xs text-content-subtle">Deep system scan, permissions & diagnostics export.</span>
           </span>
         </span>
-        <RefreshCw className="h-4 w-4 text-content-subtle" />
+        <FolderOpen className="h-4 w-4 text-content-subtle" />
       </Link>
 
       <p className="mt-2xs text-2xs text-content-subtle">
