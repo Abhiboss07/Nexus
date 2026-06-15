@@ -50,6 +50,12 @@ export interface GameProfile {
   usePrime: boolean;
   useGamemode: boolean;
   useMangohud: boolean;
+  /* Launch optimizer / Per-Game Automation */
+  priority: number | null;
+  closeApps: string[];
+  clearCache: boolean;
+  autoApply: boolean;
+  matchProcess: string | null;
 }
 
 export interface GameLaunch {

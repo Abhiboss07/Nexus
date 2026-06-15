@@ -58,7 +58,12 @@ const GRADIENTS = ["from-yellow-400 to-fuchsia-600", "from-amber-500 to-orange-7
 const grad = (id: string) => GRADIENTS[Math.abs([...id].reduce((a, c) => a + c.charCodeAt(0), 0)) % GRADIENTS.length];
 
 function emptyProfile(id: string): GameProfile {
-  return { gameId: id, rgb: null, power: null, fan: null, launchCommand: null, envVars: [], usePrime: false, useGamemode: true, useMangohud: false };
+  return { gameId: id, rgb: null, power: null, fan: null, launchCommand: null, envVars: [], usePrime: false, useGamemode: true, useMangohud: false, priority: null, closeApps: [], clearCache: false, autoApply: false, matchProcess: null };
+}
+
+/** Best-guess process name to watch for, from the game's name (user-editable). */
+function defaultMatch(game: Game): string {
+  return (game.name.split(/\s+/)[0] ?? game.name).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 type Status = { kind: "ok" | "error"; msg: string } | null;
@@ -483,6 +488,49 @@ function ProfileEditor({ game, live, onClose }: { game: Game; live: boolean; onC
             <Toggle label="PRIME offload (run on dGPU)" checked={profile.usePrime} onChange={(v) => patch({ usePrime: v })} />
             <Toggle label="GameMode" checked={profile.useGamemode} onChange={(v) => patch({ useGamemode: v })} />
             <Toggle label="MangoHud overlay" checked={profile.useMangohud} onChange={(v) => patch({ useMangohud: v })} />
+          </div>
+
+          {/* Launch optimizer & automation */}
+          <div className="space-y-md rounded-lg border border-accent/20 bg-accent/5 p-md">
+            <p className="flex items-center gap-xs text-sm font-semibold text-content"><Rocket className="h-4 w-4 text-accent" /> Launch Optimizer & Automation</p>
+
+            <Toggle label="Clear caches before launch" checked={profile.clearCache} onChange={(v) => patch({ clearCache: v })} />
+
+            <div>
+              <p className="mb-xs text-sm font-medium text-content">Close apps before launch</p>
+              <input
+                value={profile.closeApps.join(", ")}
+                onChange={(e) => patch({ closeApps: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                placeholder="chrome, discord, slack"
+                className="h-9 w-full rounded-md border border-border bg-surface-sunken/60 px-sm text-sm text-content outline-none placeholder:text-content-subtle focus:border-accent/60"
+              />
+              <p className="mt-2xs text-2xs text-content-subtle">Comma-separated process names (your own processes only).</p>
+            </div>
+
+            <div>
+              <div className="mb-xs flex items-center justify-between">
+                <span className="text-sm font-medium text-content">CPU priority (nice)</span>
+                <span className="text-xs font-semibold tabular-nums text-accent-strong">{profile.priority ?? "default"}{profile.priority != null && profile.priority < 0 ? " · needs root" : ""}</span>
+              </div>
+              <input type="range" min={-20} max={19} step={1} value={profile.priority ?? 0} onChange={(e) => patch({ priority: Number(e.target.value) || null })} className="w-full accent-[rgb(var(--color-accent))]" />
+              <p className="mt-2xs text-2xs text-content-subtle">Lower = higher priority. Negative values need elevated privilege.</p>
+            </div>
+
+            <div className="border-t border-border-subtle pt-md">
+              <Toggle label="Auto-apply when game is running" checked={profile.autoApply} onChange={(v) => patch({ autoApply: v, matchProcess: v && !profile.matchProcess ? defaultMatch(game) : profile.matchProcess })} />
+              {profile.autoApply && (
+                <div className="mt-xs">
+                  <p className="mb-xs text-sm font-medium text-content">Watch for process</p>
+                  <input
+                    value={profile.matchProcess ?? ""}
+                    onChange={(e) => patch({ matchProcess: e.target.value || null })}
+                    placeholder="cs2"
+                    className="h-9 w-full rounded-md border border-border bg-surface-sunken/60 px-sm text-sm text-content outline-none placeholder:text-content-subtle focus:border-accent/60"
+                  />
+                  <p className="mt-2xs text-2xs text-content-subtle">Nexus applies this profile automatically when this process appears, and resets when it exits.</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Steam launch options */}
