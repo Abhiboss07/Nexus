@@ -12,6 +12,7 @@ mod logging;
 mod optimizer;
 #[cfg(test)]
 mod runtime_smoke;
+mod storage;
 mod sysdoctor;
 mod telemetry;
 
@@ -151,6 +152,13 @@ pub fn run() {
             commands::delete_file,
             commands::move_file,
             commands::reveal_file,
+            commands::storage_roots,
+            commands::storage_tree,
+            commands::storage_largest_files,
+            commands::storage_duplicates,
+            commands::storage_space_by_app,
+            commands::trash_file,
+            commands::service_action,
             commands::list_plugins,
             commands::set_plugin_enabled,
             commands::get_plugins_dir,

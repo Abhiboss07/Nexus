@@ -52,7 +52,10 @@ import {
   getGpuInfo,
   getGameLaunchers,
   runSystemScan,
+  optimizerScan,
   optimizerCleanTemp,
+  optimizerRemoveOrphans,
+  optimizerVacuumJournal,
 } from "@/lib/ipc";
 import type { GpuInfo } from "@/lib/gpu-types";
 import type { LauncherStatus } from "@/lib/games-types";
@@ -147,8 +150,91 @@ export default function DashboardPage() {
             <AlertsFeed navigate={navigate} live={live} />
           </motion.div>
         </div>
+
+        {/* Recommended actions */}
+        <motion.div variants={fadeUp}>
+          <RecommendedActions />
+        </motion.div>
       </motion.div>
     </div>
+  );
+}
+
+/* -------------------------- Recommended actions -------------------------- */
+
+type Rec = { id: string; icon: LucideIcon; label: string; detail: string; run: () => Promise<string> };
+
+function RecommendedActions() {
+  const [recs, setRecs] = useState<Rec[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<Record<string, string>>({});
+
+  function human(b: number) {
+    const u = ["B", "KB", "MB", "GB", "TB"]; let v = b, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(1)} ${u[i]}`;
+  }
+
+  useEffect(() => {
+    if (!isTauri()) {
+      setRecs([
+        { id: "cache", icon: Trash2, label: "Free 1.2 GB by clearing caches", detail: "Thumbnail & app caches", run: async () => "Demo" },
+        { id: "orphans", icon: CheckCircle2, label: "Remove 7 orphan packages", detail: "Reclaim space safely", run: async () => "Demo" },
+        { id: "journal", icon: Activity, label: "Vacuum journals (≈488 MB)", detail: "Keep last 30 days", run: async () => "Demo" },
+      ]);
+      return;
+    }
+    optimizerScan()
+      .then((s) => {
+        const list: Rec[] = [];
+        const reclaim = s.temp.reduce((a, t) => a + t.sizeBytes, 0);
+        if (reclaim > 200 * 1024 * 1024) {
+          list.push({ id: "cache", icon: Trash2, label: `Free ${human(reclaim)} by clearing caches`, detail: "Thumbnail cache (safe, one-click)", run: () => optimizerCleanTemp("thumbnails") });
+        }
+        if (s.orphans.supported && s.orphans.count > 0) {
+          list.push({ id: "orphans", icon: CheckCircle2, label: `Remove ${s.orphans.count} orphan package(s)`, detail: "Authorizes via polkit", run: optimizerRemoveOrphans });
+        }
+        if (s.journal.supported && s.journal.sizeBytes > 200 * 1024 * 1024) {
+          list.push({ id: "journal", icon: Activity, label: `Vacuum journals (${s.journal.human})`, detail: "Keep the last 30 days", run: () => optimizerVacuumJournal(30) });
+        }
+        setRecs(list);
+      })
+      .catch(() => setRecs([]));
+  }, []);
+
+  async function exec(r: Rec) {
+    setBusy(r.id);
+    try { const msg = await r.run(); setDone((d) => ({ ...d, [r.id]: msg })); }
+    catch (e) { setDone((d) => ({ ...d, [r.id]: String(e) })); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <p className="mb-md flex items-center gap-xs text-sm font-semibold text-content"><Wand2 className="h-4 w-4 text-accent" /> Recommended Actions</p>
+      {recs === null ? (
+        <div className="flex items-center gap-sm py-md text-sm text-content-muted"><Loader2 className="h-4 w-4 animate-spin" /> Analyzing…</div>
+      ) : recs.length === 0 ? (
+        <div className="flex items-center gap-sm py-md text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Nothing to clean up — your system is tidy.</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-sm sm:grid-cols-3">
+          {recs.map((r) => (
+            <div key={r.id} className="flex flex-col rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+              <r.icon className="h-5 w-5 text-accent" />
+              <p className="mt-xs flex-1 text-sm font-medium text-content">{r.label}</p>
+              <p className="text-2xs text-content-subtle">{r.detail}</p>
+              {done[r.id] ? (
+                <p className="mt-sm truncate text-2xs text-success" title={done[r.id]}>✓ {done[r.id]}</p>
+              ) : (
+                <Button variant="primary" size="sm" className="mt-sm" disabled={busy === r.id} onClick={() => exec(r)}>
+                  {busy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Run
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </GlassCard>
   );
 }
 
@@ -386,8 +472,8 @@ function AlertsFeed({ navigate, live }: { navigate: (p: string) => void; live: b
   useEffect(() => {
     if (!isTauri()) {
       setAlerts([
-        { severity: "warning", title: "Journal errors", detail: "12 error-level entries this boot", fix: "" },
-        { severity: "info", title: "Orphan packages", detail: "7 orphaned packages", fix: "" },
+        { severity: "warning", title: "Journal errors", detail: "12 error-level entries this boot", fix: "", kind: "journal", unit: null, userScope: false },
+        { severity: "info", title: "Orphan packages", detail: "7 orphaned packages", fix: "", kind: "package", unit: null, userScope: false },
       ]);
       return;
     }

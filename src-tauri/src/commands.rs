@@ -30,6 +30,7 @@ use crate::control::rgb::RgbProfile;
 use crate::control::traits::{ControlError, ControlOutcome, RgbRequest, RgbState};
 use crate::control::{ControlAction, ControlService, HardwareCapabilities};
 use crate::optimizer::{self, OptimizerReport};
+use crate::storage::{self, AppUsage, DupGroup, FileInfo, ScanRoot, TreeLevel};
 use crate::sysdoctor::{self, StorageAnalysis, SystemScan};
 use crate::telemetry::processes::{self, ProcInfo, ProcessMonitor};
 use crate::telemetry::{collectors, HardwareProfile, HistoryPoint, Snapshot, TelemetryService};
@@ -580,6 +581,45 @@ pub fn move_file(src: String, dest: String) -> Result<String, String> {
 #[tauri::command]
 pub fn reveal_file(path: String) -> Result<String, String> {
     sysdoctor::reveal_path(&path)
+}
+
+/* ----- Storage Analyzer Pro (all async/off-thread; scans use du/find) ----- */
+
+#[tauri::command]
+pub async fn storage_roots() -> Result<Vec<ScanRoot>, String> {
+    blocking(storage::scan_roots).await
+}
+
+#[tauri::command]
+pub async fn storage_tree(path: String) -> Result<TreeLevel, String> {
+    blocking(move || storage::tree_level(&path)).await
+}
+
+#[tauri::command]
+pub async fn storage_largest_files(root: String, limit: usize) -> Result<Vec<FileInfo>, String> {
+    blocking(move || storage::largest_files(&root, limit)).await
+}
+
+#[tauri::command]
+pub async fn storage_duplicates(root: String, category: String) -> Result<Vec<DupGroup>, String> {
+    blocking(move || storage::find_duplicates(&root, &category)).await
+}
+
+#[tauri::command]
+pub async fn storage_space_by_app() -> Result<Vec<AppUsage>, String> {
+    blocking(storage::space_by_app).await
+}
+
+#[tauri::command]
+pub async fn trash_file(path: String) -> Result<String, String> {
+    blocking(move || storage::trash_file(&path)).await?
+}
+
+/// Doctor service action: status | logs | restart. Async (restart prompts
+/// pkexec; status/logs shell out) so it never blocks the UI.
+#[tauri::command]
+pub async fn service_action(unit: String, action: String, user: bool) -> Result<String, String> {
+    blocking(move || sysdoctor::service_action(&unit, &action, user)).await?
 }
 
 /* ----- Plugins ----- */

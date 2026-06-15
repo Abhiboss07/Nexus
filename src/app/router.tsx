@@ -12,6 +12,7 @@ const Performance = lazy(() => import("@/pages/performance"));
 const Rgb = lazy(() => import("@/pages/rgb"));
 const Battery = lazy(() => import("@/pages/battery"));
 const Storage = lazy(() => import("@/pages/storage"));
+const StorageAnalyzer = lazy(() => import("@/pages/storage-analyzer"));
 const Tasks = lazy(() => import("@/pages/tasks"));
 const Doctor = lazy(() => import("@/pages/doctor"));
 const Optimizer = lazy(() => import("@/pages/optimizer"));
@@ -34,6 +35,7 @@ const routes: RouteObject[] = [
       { path: "rgb", element: withSuspense(<Rgb />) },
       { path: "battery", element: withSuspense(<Battery />) },
       { path: "storage", element: withSuspense(<Storage />) },
+      { path: "storage-analyzer", element: withSuspense(<StorageAnalyzer />) },
       { path: "tasks", element: withSuspense(<Tasks />) },
       { path: "doctor", element: withSuspense(<Doctor />) },
       { path: "optimizer", element: withSuspense(<Optimizer />) },

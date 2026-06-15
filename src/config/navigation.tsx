@@ -11,6 +11,7 @@ import {
   Plug,
   Brain,
   Wand2,
+  FileSearch,
   type LucideIcon,
 } from "lucide-react";
 
@@ -76,6 +77,14 @@ export const NAV_ITEMS: NavItem[] = [
     path: "/storage",
     icon: HardDrive,
     description: "Drives, usage & SMART health",
+    group: "tools",
+  },
+  {
+    id: "storage-analyzer",
+    label: "Storage Analyzer",
+    path: "/storage-analyzer",
+    icon: FileSearch,
+    description: "Treemap, largest files, duplicates & per-app usage",
     group: "tools",
   },
   {

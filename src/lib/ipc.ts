@@ -21,6 +21,13 @@ import type { BatteryReport, BatterySample, ChargeLimitEvidence } from "./batter
 import type { StorageAnalysis, SystemScan } from "./sysdoctor-types";
 import type { Plugin } from "./plugins-types";
 import type { OptimizerReport } from "./optimizer-types";
+import type {
+  AppUsage,
+  DupGroup,
+  FileInfo,
+  ScanRoot,
+  TreeLevel,
+} from "./storage-types";
 import type { CurvePoint, FanInfo, FanProfile, ThermalReport } from "./fan-types";
 import type { GpuCapabilities, GpuInfo, GpuIntelligence } from "./gpu-types";
 import type {
@@ -245,6 +252,19 @@ export const deleteFile = (path: string) => invoke<string>("delete_file", { path
 export const moveFile = (src: string, dest: string) =>
   invoke<string>("move_file", { src, dest });
 export const revealFile = (path: string) => invoke<string>("reveal_file", { path });
+export const trashFile = (path: string) => invoke<string>("trash_file", { path });
+export const serviceAction = (unit: string, action: "status" | "logs" | "restart", user: boolean) =>
+  invoke<string>("service_action", { unit, action, user });
+
+/* ----- Storage Analyzer Pro ----- */
+
+export const storageRoots = () => invoke<ScanRoot[]>("storage_roots");
+export const storageTree = (path: string) => invoke<TreeLevel>("storage_tree", { path });
+export const storageLargestFiles = (root: string, limit: number) =>
+  invoke<FileInfo[]>("storage_largest_files", { root, limit });
+export const storageDuplicates = (root: string, category: string) =>
+  invoke<DupGroup[]>("storage_duplicates", { root, category });
+export const storageSpaceByApp = () => invoke<AppUsage[]>("storage_space_by_app");
 
 /* ----- Plugins ----- */
 
