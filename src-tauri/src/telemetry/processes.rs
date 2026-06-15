@@ -230,6 +230,24 @@ pub fn process_action(pid: u32, action: &str) -> Result<String, String> {
     }
 }
 
+/// The set of currently-running process `comm` names (for the game auto-apply
+/// watcher). Cheap: reads `/proc/<pid>/comm` only.
+pub fn running_process_names() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(rd) = std::fs::read_dir("/proc") {
+        for entry in rd.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().parse::<u32>().is_err() {
+                continue;
+            }
+            if let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) {
+                set.insert(comm.trim().to_string());
+            }
+        }
+    }
+    set
+}
+
 /// Resolve the on-disk location of a process's executable.
 pub fn process_exe(pid: u32) -> Option<String> {
     std::fs::read_link(format!("/proc/{pid}/exe"))

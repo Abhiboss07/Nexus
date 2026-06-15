@@ -201,6 +201,20 @@ impl ControlService {
     pub fn delete_game_profile(&self, game_id: &str) -> Result<(), ControlError> {
         self.game_profiles.delete(game_id).map_err(ControlError::Io)
     }
+    /// Profiles that auto-apply, with the process name to watch for.
+    pub fn game_auto_apply_rules(&self) -> Vec<(String, String)> {
+        self.game_profiles
+            .list()
+            .into_iter()
+            .filter(|p| p.auto_apply)
+            .filter_map(|p| {
+                p.match_process
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|m| (p.game_id, m.trim().to_string()))
+            })
+            .collect()
+    }
+
     pub fn game_launch_info(&self, game_id: &str) -> Option<GameLaunch> {
         let game = scan(true).into_iter().find(|g| g.id == game_id)?;
         let profile = self.get_game_profile(game_id);
@@ -210,11 +224,19 @@ impl ControlService {
         })
     }
 
-    /// Apply a game's profile (power + RGB + fan) — used on launch / manually.
+    /// Apply a game's profile (power + RGB + fan + launch optimizer) — used on
+    /// launch / manually / by the auto-apply watcher.
     pub fn apply_game_profile(&self, game_id: &str) -> ControlResult {
         let profile = self.get_game_profile(game_id);
         let mut applied = false;
         let mut notes: Vec<String> = Vec::new();
+
+        // Launch optimizer first (close apps / clear cache) so the game starts
+        // into a clean environment.
+        for note in profile.run_launch_optimizer() {
+            applied = true;
+            notes.push(note);
+        }
 
         if let Some(power) = &profile.power {
             if self.power.has_controller() {

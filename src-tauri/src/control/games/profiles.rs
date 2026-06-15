@@ -37,6 +37,23 @@ pub struct GameProfile {
     pub use_gamemode: bool,
     #[serde(default)]
     pub use_mangohud: bool,
+
+    /* ---- Launch optimizer (Per-Game Automation) ---- */
+    /// CPU scheduling niceness for native launches (-20 high … 19 low).
+    #[serde(default)]
+    pub priority: Option<i32>,
+    /// Background process names to terminate before launch (e.g. "chrome").
+    #[serde(default)]
+    pub close_apps: Vec<String>,
+    /// Drop the thumbnail cache before launch (free a little RAM/IO).
+    #[serde(default)]
+    pub clear_cache: bool,
+    /// Auto-apply this profile when `match_process` is detected running.
+    #[serde(default)]
+    pub auto_apply: bool,
+    /// Process name to watch for auto-apply (defaults to the game's binary).
+    #[serde(default)]
+    pub match_process: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -63,6 +80,11 @@ impl GameProfile {
             use_prime: false,
             use_gamemode: true,
             use_mangohud: false,
+            priority: None,
+            close_apps: Vec::new(),
+            clear_cache: false,
+            auto_apply: false,
+            match_process: None,
         }
     }
 
@@ -83,7 +105,56 @@ impl GameProfile {
         if self.use_prime {
             parts.push("prime-run".into());
         }
+        // CPU priority: nice prefix (negative values need privilege; nice still
+        // launches the game at default priority if not permitted).
+        if let Some(p) = self.priority {
+            parts.insert(0, format!("nice -n {}", p.clamp(-20, 19)));
+        }
         parts.join(" ")
+    }
+
+    /// Run the launch-optimizer pre-steps (close background apps, clear the
+    /// thumbnail cache). User-level only — never escalates. Returns notes.
+    pub fn run_launch_optimizer(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        let uid = unsafe { libc::geteuid() }.to_string();
+        for app in &self.close_apps {
+            let app = app.trim();
+            if app.is_empty() {
+                continue;
+            }
+            // Signal only the current user's processes matching the name.
+            let ok = std::process::Command::new("pkill")
+                .args(["-TERM", "-u", &uid, "-x", app])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+                // Fall back to a substring match if the exact name missed.
+                || std::process::Command::new("pkill")
+                    .args(["-TERM", "-u", &uid, app])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            if ok {
+                notes.push(format!("Closed {app}"));
+            }
+        }
+        if self.clear_cache {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let thumb = format!("{home}/.cache/thumbnails");
+            if let Ok(rd) = std::fs::read_dir(&thumb) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    let _ = if p.is_dir() {
+                        std::fs::remove_dir_all(&p)
+                    } else {
+                        std::fs::remove_file(&p)
+                    };
+                }
+                notes.push("Cleared thumbnail cache".into());
+            }
+        }
+        notes
     }
 
     /// A Steam "Launch Options" string to paste into the game's properties.
@@ -187,7 +258,6 @@ impl GameProfileStore {
         }
     }
 
-    #[allow(dead_code)]
     pub fn list(&self) -> Vec<GameProfile> {
         let mut out = Vec::new();
         if let Ok(rd) = fs::read_dir(&self.dir) {
@@ -250,5 +320,40 @@ mod tests {
     fn steam_launch_command_uses_rungameid() {
         let p = GameProfile::empty("steam:1145360");
         assert_eq!(p.launch_command(&game()), "steam steam://rungameid/1145360");
+    }
+}
+
+#[cfg(test)]
+mod automation_tests {
+    use super::*;
+
+    #[test]
+    fn profile_roundtrips_with_automation_fields() {
+        let mut p = GameProfile::empty("steam:730");
+        p.auto_apply = true;
+        p.match_process = Some("cs2".into());
+        p.close_apps = vec!["chrome".into()];
+        p.clear_cache = true;
+        p.priority = Some(-5);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: GameProfile = serde_json::from_str(&json).unwrap();
+        assert!(back.auto_apply && back.clear_cache);
+        assert_eq!(back.match_process.as_deref(), Some("cs2"));
+        assert_eq!(back.priority, Some(-5));
+    }
+
+    #[test]
+    fn old_profile_json_still_loads() {
+        // A profile saved before the automation fields existed must deserialize.
+        let old = r#"{"gameId":"x","rgb":null,"power":null,"fan":null,"launchCommand":null,"envVars":[],"usePrime":false,"useGamemode":true,"useMangohud":false}"#;
+        let p: GameProfile = serde_json::from_str(old).unwrap();
+        assert!(!p.auto_apply && p.priority.is_none() && p.close_apps.is_empty());
+    }
+
+    #[test]
+    fn wrapper_includes_nice_when_priority_set() {
+        let mut p = GameProfile::empty("x");
+        p.priority = Some(10);
+        assert!(p.steam_launch_options().contains("nice -n 10"));
     }
 }

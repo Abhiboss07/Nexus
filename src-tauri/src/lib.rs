@@ -256,6 +256,41 @@ pub fn run() {
                 }
             });
 
+            // ----- Per-game automation watcher -----
+            // Detects when a configured game's process appears and auto-applies
+            // its profile (power + RGB + fan + launch optimizer) once, resetting
+            // when the game exits so it re-applies on the next launch.
+            let game_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut applied: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                loop {
+                    std::thread::sleep(Duration::from_secs(5));
+                    let svc = game_handle.state::<ControlService>();
+                    let rules = svc.game_auto_apply_rules();
+                    if rules.is_empty() {
+                        applied.clear();
+                        continue;
+                    }
+                    let running = telemetry::processes::running_process_names();
+                    for (game_id, proc) in rules {
+                        let is_running = running.contains(&proc);
+                        if is_running && !applied.contains(&game_id) {
+                            let _ = svc.apply_game_profile(&game_id);
+                            logging::line(
+                                "INFO",
+                                &format!(
+                                    "Auto-applied game profile for '{game_id}' ({proc} detected)"
+                                ),
+                            );
+                            applied.insert(game_id);
+                        } else if !is_running {
+                            applied.remove(&game_id);
+                        }
+                    }
+                }
+            });
+
             if recovered {
                 logging::line(
                     "INFO",
