@@ -43,6 +43,13 @@ pub struct Finding {
     pub detail: String,
     /// Optional remediation command/hint.
     pub fix: String,
+    /// Finding category so the UI can offer the right actions:
+    /// "service" | "journal" | "coredump" | "package" | "".
+    pub kind: String,
+    /// The systemd unit this finding refers to (drives Restart/Logs/Status).
+    pub unit: Option<String>,
+    /// True for `--user` units (toggled via `systemctl --user`, no pkexec).
+    pub user_scope: bool,
 }
 
 fn f(severity: &str, title: &str, detail: impl Into<String>, fix: &str) -> Finding {
@@ -51,6 +58,22 @@ fn f(severity: &str, title: &str, detail: impl Into<String>, fix: &str) -> Findi
         title: title.into(),
         detail: detail.into(),
         fix: fix.into(),
+        kind: String::new(),
+        unit: None,
+        user_scope: false,
+    }
+}
+
+impl Finding {
+    fn service(mut self, unit: &str, user_scope: bool) -> Self {
+        self.kind = "service".into();
+        self.unit = Some(unit.into());
+        self.user_scope = user_scope;
+        self
+    }
+    fn kind(mut self, kind: &str) -> Self {
+        self.kind = kind.into();
+        self
     }
 }
 
@@ -355,30 +378,100 @@ fn scan_startup() -> ScanCategory {
     ScanCategory::new("startup", "Startup", out)
 }
 
+/// Human-readable cause for a failed unit from `systemctl show`. Separates a
+/// genuine failure from a duplicate-instance / restart-loop (start-limit-hit),
+/// which is usually a benign "already running / repeated too quickly" case.
+fn unit_cause(unit: &str, user: bool) -> (String, bool) {
+    let mut args = vec![
+        "show",
+        unit,
+        "-p",
+        "Result",
+        "-p",
+        "ExecMainStatus",
+        "-p",
+        "ActiveState",
+        "--value",
+    ];
+    if user {
+        args.insert(0, "--user");
+    }
+    let out = run("systemctl", &args).unwrap_or_default();
+    let mut lines = out.lines();
+    let result = lines.next().unwrap_or("").trim().to_string();
+    let code = lines.next().unwrap_or("").trim().to_string();
+    let dup = result == "start-limit-hit";
+    let cause = match result.as_str() {
+        "exit-code" => format!("Exited with a non-zero status (code {code})."),
+        "signal" => "Killed by a signal (likely crashed).".to_string(),
+        "timeout" => "Timed out while starting or stopping.".to_string(),
+        "start-limit-hit" => "Restarted too many times too quickly (start-limit-hit) — often a duplicate instance or a tight restart loop.".to_string(),
+        "oom-kill" => "Killed by the out-of-memory killer.".to_string(),
+        "core-dump" => "Crashed and dumped core.".to_string(),
+        "" => "Failed (no result reported).".to_string(),
+        other => format!("Failed: {other}."),
+    };
+    (cause, dup)
+}
+
+fn scan_failed(user: bool, out: &mut Vec<Finding>) {
+    let mut args = vec!["--failed", "--no-legend", "--plain"];
+    if user {
+        args.insert(0, "--user");
+    }
+    let Some(failed) = run("systemctl", &args) else {
+        return;
+    };
+    let units: Vec<String> = failed
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .filter(|s| {
+            s.ends_with(".service")
+                || s.ends_with(".socket")
+                || s.ends_with(".timer")
+                || s.ends_with(".mount")
+        })
+        .map(String::from)
+        .collect();
+    let label = if user { "user" } else { "system" };
+    if units.is_empty() {
+        out.push(f(
+            "ok",
+            &format!("Failed {label} services"),
+            format!("No failed {label} units"),
+            "",
+        ));
+        return;
+    }
+    for unit in units {
+        let (cause, dup) = unit_cause(&unit, user);
+        // Duplicate-instance / restart-loop is a warning, not a hard failure.
+        let sev = if dup { "warning" } else { "critical" };
+        let title = if dup {
+            format!("{unit} (restart loop)")
+        } else {
+            unit.clone()
+        };
+        out.push(
+            f(
+                sev,
+                &title,
+                cause,
+                &format!(
+                    "systemctl {}status {unit}",
+                    if user { "--user " } else { "" }
+                ),
+            )
+            .service(&unit, user),
+        );
+    }
+}
+
 fn scan_services() -> ScanCategory {
     let mut out = Vec::new();
     if has("systemctl") {
-        if let Some(failed) = run("systemctl", &["--failed", "--no-legend", "--plain"]) {
-            let units: Vec<&str> = failed
-                .lines()
-                .filter_map(|l| l.split_whitespace().next())
-                .filter(|s| !s.is_empty())
-                .collect();
-            out.push(if units.is_empty() {
-                f("ok", "System services", "No failed system units", "")
-            } else {
-                f(
-                    "critical",
-                    "Failed services",
-                    format!(
-                        "{}: {}",
-                        units.len(),
-                        units.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
-                    ),
-                    "systemctl --failed  ·  journalctl -xe -u <unit>",
-                )
-            });
-        }
+        scan_failed(false, &mut out);
+        scan_failed(true, &mut out);
     } else {
         out.push(f("info", "Services", "systemctl unavailable", ""));
     }
@@ -562,83 +655,171 @@ fn scan_power(control: &ControlService) -> ScanCategory {
 
 /* ----------------------- scans surfaced as findings ----------------------- */
 
+/// Count error entries by emitting unit (or syslog identifier) from
+/// `journalctl -o json` and return the top `n` offenders.
+fn top_journal_offenders(json: &str, n: usize) -> Vec<(String, usize)> {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for line in json.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let unit = v
+            .get("_SYSTEMD_UNIT")
+            .and_then(|x| x.as_str())
+            .or_else(|| v.get("SYSLOG_IDENTIFIER").and_then(|x| x.as_str()))
+            .or_else(|| v.get("_COMM").and_then(|x| x.as_str()))
+            .unwrap_or("unknown")
+            .to_string();
+        *counts.entry(unit).or_insert(0) += 1;
+    }
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v.truncate(n);
+    v
+}
+
+/// Group `coredumpctl list` output by executable name.
+fn group_coredumps(list: &str) -> Vec<(String, usize)> {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for line in list.lines() {
+        if line.starts_with("TIME") || line.trim().is_empty() {
+            continue;
+        }
+        // The EXE column is an absolute path; take its basename.
+        if let Some(exe) = line.split_whitespace().find(|t| t.starts_with('/')) {
+            let app = exe.rsplit('/').next().unwrap_or(exe).to_string();
+            *counts.entry(app).or_insert(0) += 1;
+        }
+    }
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v
+}
+
 /// Journal errors, crash logs, orphan/broken packages, broken symlinks — folded
 /// into a "Maintenance" category so the dedicated scans from the spec appear.
 fn scan_maintenance() -> ScanCategory {
     let mut out = Vec::new();
 
-    // Journal priority<=3 (errors) this boot.
+    // Journal errors (priority<=3) this boot — surface the TOP OFFENDING units,
+    // not just a total count.
     if has("journalctl") {
-        if let Some(j) = run("journalctl", &["-p", "3", "-b", "--no-pager", "-q"]) {
-            let n = j.lines().filter(|l| !l.trim().is_empty()).count();
-            out.push(if n == 0 {
-                f(
-                    "ok",
-                    "Journal errors",
-                    "No priority-error journal entries this boot",
-                    "",
-                )
+        let total = run("journalctl", &["-p", "3", "-b", "--no-pager", "-q"])
+            .map(|j| j.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0);
+        if total == 0 {
+            out.push(f(
+                "ok",
+                "Journal errors",
+                "No priority-error entries this boot",
+                "",
+            ));
+        } else {
+            // Count by emitting unit/identifier via the journal export field.
+            let units = run("journalctl", &["-p", "3", "-b", "--no-pager", "-o", "json"])
+                .map(|j| top_journal_offenders(&j, 4))
+                .unwrap_or_default();
+            let detail = if units.is_empty() {
+                format!("{total} error-level entr(ies) this boot")
             } else {
+                let list = units
+                    .iter()
+                    .map(|(u, c)| format!("{u} ({c})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{total} this boot — top: {list}")
+            };
+            out.push(
                 f(
-                    if n > 40 { "warning" } else { "info" },
+                    if total > 40 { "warning" } else { "info" },
                     "Journal errors",
-                    format!("{n} error-level journal entr(ies) this boot"),
+                    detail,
                     "journalctl -p 3 -b",
                 )
-            });
+                .kind("journal"),
+            );
         }
     }
-    // Crash logs (coredumps).
+    // Crash logs (coredumps) grouped by application.
     if has("coredumpctl") {
-        if let Some(c) = run("coredumpctl", &["--no-pager", "list"]) {
-            let n = c
-                .lines()
-                .filter(|l| l.contains("present") || l.contains("/"))
-                .count();
-            if n > 0 {
-                out.push(f(
-                    "warning",
-                    "Crash logs",
-                    format!("{n} recorded coredump(s)"),
-                    "coredumpctl list",
-                ));
+        if let Some(c) = run("coredumpctl", &["--no-pager", "list", "--reverse"]) {
+            let groups = group_coredumps(&c);
+            if groups.is_empty() {
+                out.push(f("ok", "Crash logs", "No recorded coredumps", ""));
             } else {
-                out.push(f("ok", "Crash logs", "No recent coredumps", ""));
+                let total: usize = groups.iter().map(|(_, n)| n).sum();
+                let list = groups
+                    .iter()
+                    .take(5)
+                    .map(|(app, n)| format!("{app} ×{n}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push(
+                    f(
+                        "warning",
+                        "Crash logs",
+                        format!("{total} coredump(s): {list}"),
+                        "coredumpctl info <pid>",
+                    )
+                    .kind("coredump"),
+                );
             }
         }
     }
-    // Orphan packages (Arch).
+    // Orphan packages (Arch) — with the names.
     if has("pacman") {
         if let Some(orphans) = run("pacman", &["-Qtdq"]) {
-            let n = orphans.lines().filter(|l| !l.trim().is_empty()).count();
-            out.push(if n == 0 {
+            let names: Vec<&str> = orphans
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
+            out.push(if names.is_empty() {
                 f("ok", "Orphan packages", "None", "")
             } else {
+                let preview = names.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
                 f(
                     "info",
                     "Orphan packages",
-                    format!("{n} orphaned package(s)"),
+                    format!("{}: {preview}", names.len()),
                     "sudo pacman -Rns $(pacman -Qtdq)",
                 )
+                .kind("package")
             });
         }
-        // Broken dependencies.
+        // Broken dependencies — name the affected packages + repair action.
         if let Some(dk) = run("pacman", &["-Dk"]) {
-            let bad = dk
+            let affected: Vec<String> = dk
                 .lines()
                 .filter(|l| {
-                    l.to_lowercase().contains("missing") || l.to_lowercase().contains("error")
+                    let l = l.to_lowercase();
+                    l.contains("missing") || l.contains("error") || l.contains("breaks dependency")
                 })
-                .count();
-            if bad > 0 {
-                out.push(f(
-                    "warning",
-                    "Broken packages",
-                    format!("{bad} dependency issue(s)"),
-                    "sudo pacman -Dk",
-                ));
-            } else {
+                .filter_map(|l| {
+                    l.split(':')
+                        .next()
+                        .map(|s| s.trim().replace("warning", "").trim().to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
+            if affected.is_empty() {
                 out.push(f("ok", "Package dependencies", "Consistent", ""));
+            } else {
+                let preview = affected
+                    .iter()
+                    .take(6)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push(
+                    f(
+                        "warning",
+                        "Broken packages",
+                        format!("{}: {preview}", affected.len()),
+                        "sudo pacman -Syu  (repair: sudo pacman -S <pkg>)",
+                    )
+                    .kind("package"),
+                );
             }
         }
     }
@@ -805,6 +986,65 @@ pub fn move_path(src: &str, dest: &str) -> Result<String, String> {
     under_home(src)?;
     std::fs::rename(src, dest).map_err(|e| e.to_string())?;
     Ok(format!("Moved to {dest}"))
+}
+
+/// Doctor service actions. `status`/`logs` are read-only and return text;
+/// `restart` runs `systemctl restart` (via pkexec for system units, directly
+/// for `--user` units). Nexus never silently escalates.
+pub fn service_action(unit: &str, action: &str, user: bool) -> Result<String, String> {
+    // Defend against argument injection — a unit name is a single token.
+    if unit.is_empty() || unit.split_whitespace().count() != 1 {
+        return Err("Invalid unit name.".into());
+    }
+    let scope: &[&str] = if user { &["--user"] } else { &[] };
+    match action {
+        "status" => {
+            let mut a = scope.to_vec();
+            a.extend(["status", unit, "--no-pager", "-l"]);
+            let out = Command::new("systemctl")
+                .args(&a)
+                .output()
+                .map_err(|e| e.to_string())?;
+            // status exits non-zero for failed units, but stdout still has the report.
+            let text = String::from_utf8_lossy(&out.stdout);
+            Ok(text.chars().take(8000).collect())
+        }
+        "logs" => {
+            let mut a = scope.to_vec();
+            a.extend(["-u", unit, "-n", "200", "--no-pager"]);
+            let out = Command::new("journalctl")
+                .args(&a)
+                .output()
+                .map_err(|e| e.to_string())?;
+            Ok(String::from_utf8_lossy(&out.stdout)
+                .chars()
+                .take(12000)
+                .collect())
+        }
+        "restart" => {
+            let out = if user {
+                Command::new("systemctl")
+                    .args(["--user", "restart", unit])
+                    .output()
+            } else {
+                Command::new("pkexec")
+                    .args(["systemctl", "restart", unit])
+                    .output()
+            }
+            .map_err(|e| e.to_string())?;
+            if out.status.success() {
+                Ok(format!("Restarted {unit}."))
+            } else {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                Err(if err.is_empty() {
+                    format!("Failed to restart {unit}.")
+                } else {
+                    err
+                })
+            }
+        }
+        other => Err(format!("Unknown service action '{other}'.")),
+    }
 }
 
 /// Reveal a path in the file manager via xdg-open on its parent directory.

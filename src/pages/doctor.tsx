@@ -17,6 +17,9 @@ import {
   FolderOpen,
   Trash2,
   Sparkles,
+  FileText,
+  EyeOff,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -34,6 +37,7 @@ import {
   runSystemScan,
   deleteFile,
   revealFile,
+  serviceAction,
 } from "@/lib/ipc";
 import type { HealthCheck, Permissions } from "@/lib/system-types";
 import type { ScanCategory, Severity, SystemScan, FileEntry } from "@/lib/sysdoctor-types";
@@ -240,7 +244,26 @@ export default function DoctorPage() {
 
 function CategoryCard({ cat }: { cat: ScanCategory }) {
   const [open, setOpen] = useState(cat.status === "critical" || cat.status === "warning");
+  const [ignored, setIgnored] = useState<Set<string>>(new Set());
+  const [modal, setModal] = useState<{ title: string; text: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const st = STATUS[cat.status] ?? STATUS.ok;
+
+  async function svc(unit: string, action: "logs" | "status", user: boolean, title: string) {
+    setModal({ title, text: "Loading…" });
+    if (!isTauri()) { setModal({ title, text: "(desktop app only)" }); return; }
+    try { setModal({ title, text: await serviceAction(unit, action, user) }); }
+    catch (e) { setModal({ title, text: String(e) }); }
+  }
+  async function restart(unit: string, user: boolean) {
+    setBusy(unit);
+    try {
+      const msg = isTauri() ? await serviceAction(unit, "restart", user) : `Demo — would restart ${unit}.`;
+      setModal({ title: `Restart · ${unit}`, text: msg });
+    } catch (e) { setModal({ title: `Restart · ${unit}`, text: String(e) }); }
+    finally { setBusy(null); }
+  }
+
   return (
     <GlassCard padding="none" className="overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-sm p-md text-left hover:bg-surface-raised/50">
@@ -256,7 +279,7 @@ function CategoryCard({ cat }: { cat: ScanCategory }) {
         {open && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="space-y-2xs border-t border-border-subtle p-sm">
-              {cat.findings.map((f, i) => {
+              {cat.findings.filter((f) => !ignored.has(f.title)).map((f, i) => {
                 const fst = STATUS[f.severity] ?? STATUS.ok;
                 return (
                   <div key={i} className="flex items-start gap-sm rounded-md p-xs">
@@ -269,6 +292,21 @@ function CategoryCard({ cat }: { cat: ScanCategory }) {
                           <Copy className="h-2.5 w-2.5" /> {f.fix}
                         </button>
                       )}
+                      {/* Per-finding actions */}
+                      {(f.kind === "service" && f.unit) || f.severity === "warning" || f.severity === "info" ? (
+                        <div className="mt-xs flex flex-wrap gap-xs">
+                          {f.kind === "service" && f.unit && (
+                            <>
+                              <FAction icon={FileText} label="Logs" onClick={() => svc(f.unit!, "logs", f.userScope, `Logs · ${f.unit}`)} />
+                              <FAction icon={Info} label="Status" onClick={() => svc(f.unit!, "status", f.userScope, `Status · ${f.unit}`)} />
+                              <FAction icon={RotateCw} label="Restart" onClick={() => restart(f.unit!, f.userScope)} busy={busy === f.unit} />
+                            </>
+                          )}
+                          {(f.severity === "warning" || f.severity === "info") && (
+                            <FAction icon={EyeOff} label="Ignore" onClick={() => setIgnored((s) => new Set(s).add(f.title))} />
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -277,7 +315,30 @@ function CategoryCard({ cat }: { cat: ScanCategory }) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Logs / status output modal */}
+      <AnimatePresence>
+        {modal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/50 p-lg backdrop-blur-sm" onClick={() => setModal(null)}>
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="flex max-h-[80vh] w-full max-w-3xl flex-col glass glass-strong rounded-2xl p-lg shadow-e4">
+              <div className="mb-sm flex items-center justify-between">
+                <h3 className="font-display text-lg font-semibold text-content">{modal.title}</h3>
+                <Button variant="ghost" size="icon" onClick={() => setModal(null)}><XCircle className="h-4 w-4" /></Button>
+              </div>
+              <pre className="flex-1 overflow-auto rounded-lg bg-surface-sunken p-md text-2xs leading-relaxed text-content-muted">{modal.text || "(no output)"}</pre>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </GlassCard>
+  );
+}
+
+function FAction({ icon: Icon, label, onClick, busy }: { icon: LucideIcon; label: string; onClick: () => void; busy?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={busy} className="inline-flex items-center gap-xs rounded-md border border-border px-sm py-2xs text-2xs font-medium text-content-muted transition-colors hover:text-content disabled:opacity-50">
+      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icon className="h-3 w-3" />} {label}
+    </button>
   );
 }
 

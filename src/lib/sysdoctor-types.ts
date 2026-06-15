@@ -7,6 +7,12 @@ export interface Finding {
   title: string;
   detail: string;
   fix: string;
+  /** "service" | "journal" | "coredump" | "package" | "" */
+  kind: string;
+  /** systemd unit this finding refers to (for Restart/Logs/Status). */
+  unit: string | null;
+  /** True for --user units (no pkexec needed). */
+  userScope: boolean;
 }
 
 export interface ScanCategory {
