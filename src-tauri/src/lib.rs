@@ -66,6 +66,7 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -136,6 +137,11 @@ pub fn run() {
             commands::apply_game_profile,
             commands::get_mangohud_status,
             commands::mangohud_apply,
+            commands::list_manual_games,
+            commands::add_manual_game,
+            commands::update_manual_game,
+            commands::delete_manual_game,
+            commands::launch_manual_game,
             commands::get_integrations,
             commands::install_integration,
             commands::get_charge_limit_evidence,
