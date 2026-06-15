@@ -29,6 +29,7 @@ import type {
   GameProfile,
   LauncherStatus,
   MangoHudStatus,
+  ManualGame,
 } from "./games-types";
 import type { Integration } from "./integrations-types";
 import type { CommandResult, IntelligenceReport } from "./intelligence-types";
@@ -205,6 +206,29 @@ export const applyGameProfile = (gameId: string) =>
 export const getMangoHudStatus = () => invoke<MangoHudStatus>("get_mangohud_status");
 export const mangohudApply = (config: string) =>
   invoke<void>("mangohud_apply", { config });
+
+/* ----- Manual game library (user-added games) ----- */
+
+export const listManualGames = () => invoke<ManualGame[]>("list_manual_games");
+export const addManualGame = (game: ManualGame) =>
+  invoke<ManualGame>("add_manual_game", { game });
+export const updateManualGame = (game: ManualGame) =>
+  invoke<void>("update_manual_game", { game });
+export const deleteManualGame = (id: string) =>
+  invoke<void>("delete_manual_game", { id });
+export const launchManualGame = (id: string) =>
+  invoke<string>("launch_manual_game", { id });
+
+/** Native file/folder picker (Tauri dialog plugin). Returns a path or null. */
+export async function pickPath(opts: {
+  directory?: boolean;
+  title?: string;
+  filters?: { name: string; extensions: string[] }[];
+}): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const res = await open({ multiple: false, ...opts });
+  return typeof res === "string" ? res : null;
+}
 
 /* ----- System integrations (Phase 4.5) ----- */
 

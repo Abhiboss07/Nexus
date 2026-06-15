@@ -12,6 +12,19 @@ export interface Game {
   isTool: boolean;
 }
 
+/** A user-added game (native executable or launcher import). */
+export interface ManualGame {
+  id: string;
+  title: string;
+  source: "steam" | "lutris" | "heroic" | "bottles" | "native";
+  executable: string;
+  workingDir: string | null;
+  launchArgs: string;
+  icon: string | null;
+  banner: string | null;
+  appId: string | null;
+}
+
 export interface LauncherStatus {
   steam: boolean;
   lutris: boolean;
