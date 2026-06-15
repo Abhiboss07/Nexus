@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Stethoscope,
@@ -7,10 +7,17 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  Info,
   Download,
   Lock,
   Copy,
   RotateCw,
+  ChevronDown,
+  HardDrive,
+  FolderOpen,
+  Trash2,
+  Sparkles,
+  type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
 import { GlassCard } from "@/components/ui/glass";
@@ -18,18 +25,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RingGauge } from "@/components/ui/ring-gauge";
 import { SectionTitle } from "@/components/ui/section";
+import { EmptyState } from "@/components/ui/states";
 import {
   isTauri,
   runHealthCheck,
   checkPermissions,
   exportDiagnostics,
+  runSystemScan,
+  deleteFile,
+  revealFile,
 } from "@/lib/ipc";
 import type { HealthCheck, Permissions } from "@/lib/system-types";
+import type { ScanCategory, Severity, SystemScan, FileEntry } from "@/lib/sysdoctor-types";
+import { formatBytes } from "@/lib/format";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
 const DEMO_HEALTH: HealthCheck = {
-  passed: 7,
+  passed: 8,
   total: 10,
   checks: [
     { name: "Telemetry stream", status: "ok", detail: "Live frames flowing" },
@@ -39,45 +52,71 @@ const DEMO_HEALTH: HealthCheck = {
     { name: "OMEN RGB driver", status: "ok", detail: "omen-rgb-keyboard loaded" },
     { name: "Fan interface", status: "ok", detail: "omen-rgb-keyboard" },
     { name: "Battery", status: "ok", detail: "power_supply sysfs" },
-    { name: "Input group", status: "warn", detail: "Not a member (RGB/fan writes blocked)" },
-    { name: "RGB write access", status: "warn", detail: "Needs input group" },
-    { name: "Fan write access", status: "warn", detail: "Needs input group" },
+    { name: "Input group", status: "ok", detail: "Member" },
+    { name: "RGB write access", status: "ok", detail: "Writable" },
+    { name: "Fan write access", status: "ok", detail: "Writable" },
   ],
 };
 const DEMO_PERMS: Permissions = {
-  inInputGroup: false, rgbWritable: false, fanWritable: false, powerControllable: true,
-  remediation: "Run: sudo usermod -aG input $USER — then log out and back in to control RGB & fans.",
+  inInputGroup: true, rgbWritable: true, fanWritable: true, powerControllable: true,
+  remediation: "",
 };
 
-const STATUS: Record<string, { icon: typeof CheckCircle2; cls: string }> = {
+const STATUS: Record<string, { icon: LucideIcon; cls: string }> = {
   ok: { icon: CheckCircle2, cls: "text-success" },
+  info: { icon: Info, cls: "text-info" },
   warn: { icon: AlertTriangle, cls: "text-warning" },
+  warning: { icon: AlertTriangle, cls: "text-warning" },
   fail: { icon: XCircle, cls: "text-danger" },
+  critical: { icon: XCircle, cls: "text-danger" },
+};
+
+const SEV_BADGE: Record<Severity, "success" | "neutral" | "warning" | "danger"> = {
+  ok: "success",
+  info: "neutral",
+  warning: "warning",
+  critical: "danger",
 };
 
 export default function DoctorPage() {
   const [phase, setPhase] = useState<"idle" | "scanning" | "done">("idle");
   const [health, setHealth] = useState<HealthCheck | null>(null);
   const [perms, setPerms] = useState<Permissions | null>(null);
+  const [scan, setScan] = useState<SystemScan | null>(null);
+  // Request-versioning: each scan gets an id; results from a superseded or
+  // cancelled run are ignored (the backend command is async & off the UI thread,
+  // so the page never freezes — Cancel just stops awaiting the in-flight run).
+  const runId = useRef(0);
 
-  async function scan() {
+  async function runScan() {
+    const id = ++runId.current;
     setPhase("scanning");
-    await new Promise((r) => setTimeout(r, 900)); // brief, premium scan beat
     if (isTauri()) {
-      const [h, p] = await Promise.all([
+      const [h, p, s] = await Promise.all([
         runHealthCheck().catch(() => DEMO_HEALTH),
         checkPermissions().catch(() => DEMO_PERMS),
+        runSystemScan().catch(() => null),
       ]);
+      if (id !== runId.current) return; // cancelled / superseded
       setHealth(h);
       setPerms(p);
+      setScan(s);
     } else {
+      await new Promise((r) => setTimeout(r, 700));
+      if (id !== runId.current) return;
       setHealth(DEMO_HEALTH);
       setPerms(DEMO_PERMS);
+      setScan(null);
     }
     setPhase("done");
   }
 
-  useEffect(() => { scan(); /* auto-run on open */ /* eslint-disable-next-line */ }, []);
+  function cancelScan() {
+    runId.current++; // invalidate the in-flight run
+    setPhase(health ? "done" : "idle");
+  }
+
+  useEffect(() => { runScan(); /* eslint-disable-next-line */ }, []);
 
   async function doExport() {
     let md: string;
@@ -90,22 +129,29 @@ export default function DoctorPage() {
     URL.revokeObjectURL(url);
   }
 
-  const score = health ? Math.round((health.passed / Math.max(1, health.total)) * 100) : 0;
+  // Prefer the deep-scan score when available; else the health pass ratio.
+  const score = scan?.score ?? (health ? Math.round((health.passed / Math.max(1, health.total)) * 100) : 0);
   const tone = score >= 85 ? "success" : score >= 60 ? "warning" : "danger";
 
   return (
     <div>
       <PageHeader
         title="System Doctor"
-        description="Live health check, permission validation & diagnostics."
+        description="Deep diagnostics across hardware, storage, drivers, services, security & power."
         actions={
           <>
             <Button variant="solid" size="md" onClick={doExport} disabled={phase !== "done"}>
-              <Download className="h-4 w-4" /> Export Diagnostics
+              <Download className="h-4 w-4" /> Export
             </Button>
-            <Button variant="primary" size="md" onClick={scan} disabled={phase === "scanning"}>
-              <RotateCw className={cn("h-4 w-4", phase === "scanning" && "animate-spin")} /> Re-scan
-            </Button>
+            {phase === "scanning" ? (
+              <Button variant="ghost" size="md" onClick={cancelScan}>
+                <XCircle className="h-4 w-4" /> Cancel
+              </Button>
+            ) : (
+              <Button variant="primary" size="md" onClick={runScan}>
+                <RotateCw className="h-4 w-4" /> Re-scan
+              </Button>
+            )}
           </>
         }
       />
@@ -116,14 +162,14 @@ export default function DoctorPage() {
           <div className="absolute -top-12 h-40 w-40 rounded-full bg-accent/15 blur-3xl" />
           <RingGauge value={phase === "scanning" ? 0 : score} size={180} thickness={14} tone={tone} label={phase === "scanning" ? "…" : `${score}`} sublabel={phase === "scanning" ? "Scanning" : "Health"} />
           <p className="mt-md text-sm text-content-muted">
-            {phase === "scanning" ? "Running diagnostics…" : health ? `${health.passed} of ${health.total} checks passed` : ""}
+            {phase === "scanning" ? "Running deep diagnostics…" : scan ? `${scan.categories.length} categories scanned` : health ? `${health.passed} of ${health.total} checks passed` : ""}
           </p>
         </GlassCard>
 
-        {/* Checks */}
+        {/* Core checks */}
         <div className="lg:col-span-2">
           <GlassCard padding="lg" className="h-full">
-            <SectionTitle title="Diagnostics" description="Drivers, sensors & subsystems" action={<Badge variant={tone === "success" ? "success" : "warning"}><ScanLine className="h-3 w-3" /> {health?.total ?? 0} checks</Badge>} />
+            <SectionTitle title="Core Diagnostics" description="Drivers, sensors & subsystems" action={<Badge variant={tone === "success" ? "success" : "warning"}><ScanLine className="h-3 w-3" /> {health?.total ?? 0} checks</Badge>} />
             <motion.div variants={stagger(0.03)} initial="hidden" animate="show" className="grid grid-cols-1 gap-2xs sm:grid-cols-2">
               {(health?.checks ?? []).map((c) => {
                 const st = STATUS[c.status] ?? STATUS.ok;
@@ -142,6 +188,19 @@ export default function DoctorPage() {
         </div>
       </div>
 
+      {/* Deep scan categories */}
+      {scan && (
+        <div className="mt-md">
+          <SectionTitle title="System Health Categories" description="Expand a category to see every finding" />
+          <div className="grid grid-cols-1 gap-md md:grid-cols-2 xl:grid-cols-3">
+            {scan.categories.map((c) => <CategoryCard key={c.id} cat={c} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Storage analyzer */}
+      {scan && <StorageAnalyzer analysis={scan.storage} onChanged={runScan} />}
+
       {/* Permissions */}
       <AnimatePresence>
         {perms && (
@@ -152,9 +211,9 @@ export default function DoctorPage() {
                 <PermCard label="Power Profiles" ok={perms.powerControllable} />
                 <PermCard label="RGB Lighting" ok={perms.rgbWritable} />
                 <PermCard label="Fan Control" ok={perms.fanWritable} />
-                <PermCard label="Input Group" ok={perms.inInputGroup} />
+                <PermCard label="Control Group" ok={perms.inInputGroup} />
               </div>
-              {!perms.inInputGroup && (
+              {!perms.inInputGroup && perms.remediation && (
                 <div className="mt-md rounded-lg border border-warning/30 bg-warning/10 p-md">
                   <p className="flex items-center gap-xs text-sm font-medium text-warning"><AlertTriangle className="h-4 w-4" /> Unlock RGB & fan control</p>
                   <button onClick={() => navigator.clipboard?.writeText("sudo usermod -aG input $USER")} className="mt-xs flex w-full max-w-md items-center gap-xs rounded-md bg-surface-sunken px-sm py-xs text-left">
@@ -175,6 +234,123 @@ export default function DoctorPage() {
           <p className="mt-sm text-sm text-content-muted">Run a scan to check system health.</p>
         </GlassCard>
       )}
+    </div>
+  );
+}
+
+function CategoryCard({ cat }: { cat: ScanCategory }) {
+  const [open, setOpen] = useState(cat.status === "critical" || cat.status === "warning");
+  const st = STATUS[cat.status] ?? STATUS.ok;
+  return (
+    <GlassCard padding="none" className="overflow-hidden">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-sm p-md text-left hover:bg-surface-raised/50">
+        <st.icon className={cn("h-4 w-4 shrink-0", st.cls)} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-content">{cat.label}</p>
+          <p className="truncate text-2xs text-content-subtle">{cat.summary}</p>
+        </div>
+        <Badge size="sm" variant={SEV_BADGE[cat.status]}>{cat.status}</Badge>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-content-subtle transition-transform", open && "rotate-180")} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <div className="space-y-2xs border-t border-border-subtle p-sm">
+              {cat.findings.map((f, i) => {
+                const fst = STATUS[f.severity] ?? STATUS.ok;
+                return (
+                  <div key={i} className="flex items-start gap-sm rounded-md p-xs">
+                    <fst.icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", fst.cls)} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-content">{f.title}</p>
+                      <p className="text-2xs text-content-muted">{f.detail}</p>
+                      {f.fix && (
+                        <button onClick={() => navigator.clipboard?.writeText(f.fix)} className="mt-2xs flex items-center gap-xs text-2xs text-accent-strong hover:underline" title="Copy fix">
+                          <Copy className="h-2.5 w-2.5" /> {f.fix}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </GlassCard>
+  );
+}
+
+function StorageAnalyzer({ analysis, onChanged }: { analysis: SystemScan["storage"]; onChanged: () => void }) {
+  const [tab, setTab] = useState<"files" | "folders">("files");
+  const [status, setStatus] = useState<string | null>(null);
+  const list = tab === "files" ? analysis.largestFiles : analysis.largestFolders;
+
+  async function del(path: string) {
+    if (!window.confirm(`Delete this file permanently?\n\n${path}`)) return;
+    try { setStatus(await deleteFile(path)); onChanged(); }
+    catch (e) { setStatus(String(e)); }
+  }
+  async function open(path: string) {
+    try { setStatus(await revealFile(path)); }
+    catch (e) { setStatus(String(e)); }
+  }
+
+  return (
+    <div className="mt-md">
+      <GlassCard padding="lg">
+        <SectionTitle
+          title="Storage Analyzer"
+          description={`Largest items under ${analysis.home}`}
+          action={
+            <div className="flex rounded-md border border-border p-2xs">
+              {(["files", "folders"] as const).map((t) => (
+                <button key={t} onClick={() => setTab(t)} className={cn("rounded px-sm py-1 text-2xs font-medium capitalize transition-colors", tab === t ? "bg-accent/15 text-accent-strong" : "text-content-muted hover:text-content")}>{t}</button>
+              ))}
+            </div>
+          }
+        />
+        {status && <p className="mb-sm rounded-md bg-surface-sunken/50 px-sm py-xs text-2xs text-content-muted">{status}</p>}
+        {list.length === 0 ? (
+          <EmptyState icon={HardDrive} title="Nothing large found" description="No oversized files or folders detected in your home directory." className="border-0" />
+        ) : (
+          <div className="space-y-2xs">
+            {list.map((e: FileEntry) => (
+              <div key={e.path} className="flex items-center gap-sm rounded-lg border border-border-subtle bg-surface-sunken/40 px-sm py-xs">
+                <HardDrive className="h-4 w-4 shrink-0 text-content-subtle" />
+                <code className="min-w-0 flex-1 truncate text-2xs text-content-muted" title={e.path}>{e.path.replace(analysis.home, "~")}</code>
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-content">{formatBytes(e.sizeBytes, 1)}</span>
+                <button onClick={() => open(e.path)} className="shrink-0 rounded p-1 text-content-subtle hover:text-content" title="Open location"><FolderOpen className="h-3.5 w-3.5" /></button>
+                {tab === "files" && (
+                  <button onClick={() => del(e.path)} className="shrink-0 rounded p-1 text-content-subtle hover:text-danger" title="Delete file"><Trash2 className="h-3.5 w-3.5" /></button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {analysis.recommendations.length > 0 && (
+          <div className="mt-md">
+            <p className="mb-xs flex items-center gap-xs text-xs font-semibold text-content"><Sparkles className="h-3.5 w-3.5 text-accent" /> Cleanup recommendations</p>
+            <div className="space-y-2xs">
+              {analysis.recommendations.map((r, i) => (
+                <div key={i} className="flex items-start gap-sm rounded-md bg-surface-sunken/40 p-sm">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-content">{r.title}</p>
+                    <p className="text-2xs text-content-muted">{r.detail}</p>
+                    {r.fix && (
+                      <button onClick={() => navigator.clipboard?.writeText(r.fix)} className="mt-2xs flex items-center gap-xs text-2xs text-accent-strong hover:underline">
+                        <Copy className="h-2.5 w-2.5" /> {r.fix}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </GlassCard>
     </div>
   );
 }
