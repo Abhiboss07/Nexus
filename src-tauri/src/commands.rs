@@ -560,6 +560,17 @@ pub fn get_autostart(app: AppHandle) -> bool {
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mgr = app.autolaunch();
     if enabled {
+        // The autostart entry records the *current* executable. A dev build
+        // (`tauri dev` / `cargo run`) loads the frontend from the Vite devUrl
+        // (http://localhost:1420), so registering it makes login launches fail
+        // with "Connection refused" once the dev server is gone. Only ever
+        // register the installed production binary.
+        if tauri::is_dev() {
+            return Err(
+                "Autostart can only be enabled from an installed build, not a dev build."
+                    .into(),
+            );
+        }
         mgr.enable().map_err(|e| e.to_string())
     } else {
         mgr.disable().map_err(|e| e.to_string())

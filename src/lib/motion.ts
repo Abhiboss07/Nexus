@@ -59,19 +59,21 @@ export const stagger = (gap = 0.05): Variants => ({
   },
 });
 
-/** Page-level route transition. */
+/**
+ * Page-level route transition. Deliberately cheap: a short opacity+translate
+ * only — no animated `filter: blur()`, which forces a full-surface repaint every
+ * frame in WebKit and was the dominant cause of perceived navigation lag.
+ */
 export const pageTransition: Variants = {
-  hidden: { opacity: 0, y: 12, filter: "blur(6px)" },
+  hidden: { opacity: 0, y: 8 },
   show: {
     opacity: 1,
     y: 0,
-    filter: "blur(0px)",
-    transition: { duration: duration.slow, ease: easing.smooth },
+    transition: { duration: duration.base, ease: easing.smooth },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    filter: "blur(4px)",
-    transition: { duration: duration.base, ease: easing.snap },
+    y: -6,
+    transition: { duration: duration.fast, ease: easing.snap },
   },
 };

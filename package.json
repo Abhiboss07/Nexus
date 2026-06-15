@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "NO_STRIP=true tauri build",
     "e2e": "wdio run e2e/wdio.conf.ts"
   },
   "dependencies": {

@@ -37,8 +37,7 @@ export function Sparkline({ data, tone = "accent", height = 48 }: SparklineProps
             stroke={color}
             strokeWidth={2}
             fill={`url(#${id})`}
-            isAnimationActive
-            animationDuration={700}
+            isAnimationActive={false}
           />
         </AreaChart>
       </ResponsiveContainer>

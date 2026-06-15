@@ -75,6 +75,7 @@ export function AnalyticsCard({
               tick={{ fill: "rgb(var(--color-text-subtle))", fontSize: 11 }}
             />
             <Tooltip
+              isAnimationActive={false}
               cursor={{ stroke: "rgb(var(--color-accent) / 0.4)" }}
               contentStyle={{
                 background: "rgb(var(--color-surface-raised))",
@@ -93,6 +94,7 @@ export function AnalyticsCard({
                 stroke="rgb(var(--color-iris))"
                 strokeWidth={2}
                 fill="url(#gb)"
+                isAnimationActive={false}
               />
             )}
             <Area
@@ -102,6 +104,7 @@ export function AnalyticsCard({
               stroke="rgb(var(--color-accent))"
               strokeWidth={2.5}
               fill="url(#ga)"
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>

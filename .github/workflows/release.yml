@@ -53,6 +53,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # linuxdeploy bundles an old `strip` that cannot parse the modern
+          # `.relr.dyn` ELF section (DT_RELR relative relocations) emitted by
+          # current toolchains/distros, which aborts AppImage bundling. Skip the
+          # strip pass — the binary is already built with release opts.
+          NO_STRIP: "true"
           # Minisign key for the in-app updater. The matching PUBLIC key is
           # pinned in tauri.conf.json → plugins.updater.pubkey.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
