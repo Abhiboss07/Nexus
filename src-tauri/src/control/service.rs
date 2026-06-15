@@ -16,26 +16,27 @@ use super::fan::{
     CurvePoint, FanControlEngine, FanInfo, FanProfile, FanProfileStore, FanThermalEngine,
     ThermalReport,
 };
-use super::hardware_support::{CompatibilityReport, GateInputs, WriteGate};
 use super::games::profiles::GameLaunch;
 use super::games::{
     mangohud, scan, Game, GameProfile, GameProfileStore, LauncherStatus, MangoHudStatus,
 };
 use super::gpu::{self, GpuCapabilities, GpuInfo, GpuIntelligence};
+use super::hardware_support::{CompatibilityReport, GateInputs, WriteGate};
 use super::intelligence::{self, CommandResult, IntelligenceReport};
-use crate::telemetry::types::{HistoryPoint, Snapshot};
 use super::nexus::{NexusProfile, NexusProfileStore};
 use super::power::{PowerEngine, PowerInfo};
 use super::registry::{DriverInfo, DriverRegistry, VendorController};
 use super::rgb::{RgbEngine, RgbProfile};
 use super::traits::{ControlError, ControlOutcome, ControlResult, RgbRequest, RgbState};
 use crate::telemetry::hardware::HardwareProfile;
+use crate::telemetry::types::{HistoryPoint, Snapshot};
 
 fn automation_path() -> std::path::PathBuf {
     let base = std::env::var("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".config")
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+                .join(".config")
         });
     base.join("nexus").join("automation.json")
 }
@@ -48,14 +49,30 @@ fn load_automation() -> AutomationConfig {
 }
 
 /// A UI-initiated control request. Vendor-neutral: the UI never names a driver.
+/// The `Set*` prefix is the deliberate, semantic naming of the action surface.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ControlAction {
-    SetPowerProfile { profile: String },
-    SetFanMode { mode: String, speed_percent: Option<u8> },
-    SetChargeLimit { limit: u8 },
-    SetRgb { effect: String, hue: u16, brightness: u8, speed: u8 },
-    SetMux { mode: String },
+    SetPowerProfile {
+        profile: String,
+    },
+    SetFanMode {
+        mode: String,
+        speed_percent: Option<u8>,
+    },
+    SetChargeLimit {
+        limit: u8,
+    },
+    SetRgb {
+        effect: String,
+        hue: u16,
+        brightness: u8,
+        speed: u8,
+    },
+    SetMux {
+        mode: String,
+    },
 }
 
 pub struct ControlService {
@@ -174,7 +191,9 @@ impl ControlService {
         super::games::launchers()
     }
     pub fn get_game_profile(&self, game_id: &str) -> GameProfile {
-        self.game_profiles.get(game_id).unwrap_or_else(|| GameProfile::empty(game_id))
+        self.game_profiles
+            .get(game_id)
+            .unwrap_or_else(|| GameProfile::empty(game_id))
     }
     pub fn save_game_profile(&self, profile: &GameProfile) -> Result<(), ControlError> {
         self.game_profiles.save(profile).map_err(ControlError::Io)
@@ -200,16 +219,28 @@ impl ControlService {
         if let Some(power) = &profile.power {
             if self.power.has_controller() {
                 match self.power.set(power) {
-                    Ok(o) => { applied = true; notes.push(o.message); }
+                    Ok(o) => {
+                        applied = true;
+                        notes.push(o.message);
+                    }
                     Err(e) => notes.push(format!("Power: {e}")),
                 }
             }
         }
         if let Some(rgb) = &profile.rgb {
             if self.rgb.has_controller() && self.guard_rgb().is_ok() {
-                let req = RgbRequest { effect: rgb.effect.clone(), hue: rgb.hue, brightness: rgb.brightness, speed: rgb.speed, zone: None };
+                let req = RgbRequest {
+                    effect: rgb.effect.clone(),
+                    hue: rgb.hue,
+                    brightness: rgb.brightness,
+                    speed: rgb.speed,
+                    zone: None,
+                };
                 match self.rgb.apply(&req) {
-                    Ok(_) => { applied = true; notes.push(format!("RGB → {}", rgb.effect)); }
+                    Ok(_) => {
+                        applied = true;
+                        notes.push(format!("RGB → {}", rgb.effect));
+                    }
                     Err(e) => notes.push(format!("RGB: {e}")),
                 }
             }
@@ -218,14 +249,21 @@ impl ControlService {
             if self.guard_fan().is_ok() {
                 if let Some(fp) = self.fan_profiles.get(fan) {
                     match self.fan_control.apply_profile(&fp) {
-                        Ok(_) => { applied = true; notes.push(format!("Fan → {fan}")); }
+                        Ok(_) => {
+                            applied = true;
+                            notes.push(format!("Fan → {fan}"));
+                        }
                         Err(e) => notes.push(format!("Fan: {e}")),
                     }
                 }
             }
         }
 
-        Ok(ControlOutcome { applied, dry_run: false, message: notes.join("; ") })
+        Ok(ControlOutcome {
+            applied,
+            dry_run: false,
+            message: notes.join("; "),
+        })
     }
 
     /* ---- MangoHud overlay ---- */
@@ -283,6 +321,17 @@ impl ControlService {
     pub fn battery_export(&self) -> Option<String> {
         self.battery.export_markdown()
     }
+    /// Evidence for whether a charge-threshold control exists on this machine.
+    pub fn battery_charge_limit_evidence(&self) -> super::battery::ChargeLimitEvidence {
+        super::battery::charge_limit_evidence(
+            &self.profile.vendor_label,
+            self.profile.vendor.is_hp(),
+        )
+    }
+    /// Apply a charge limit through the kernel node (only if it exists).
+    pub fn battery_set_charge_limit(&self, percent: u8) -> Result<String, ControlError> {
+        super::battery::set_charge_limit(percent).map_err(ControlError::InvalidParameter)
+    }
 
     /* ---- Fan & thermal intelligence (Phase 3.4A — read-only) ---- */
 
@@ -316,10 +365,9 @@ impl ControlService {
     }
     pub fn fan_apply_profile(&self, name: &str) -> ControlResult {
         self.guard_fan()?;
-        let profile = self
-            .fan_profiles
-            .get(name)
-            .ok_or_else(|| ControlError::InvalidParameter(format!("unknown fan profile '{name}'")))?;
+        let profile = self.fan_profiles.get(name).ok_or_else(|| {
+            ControlError::InvalidParameter(format!("unknown fan profile '{name}'"))
+        })?;
         self.fan_control.apply_profile(&profile)
     }
     pub fn fan_save_profile(&self, profile: &FanProfile) -> Result<(), ControlError> {
@@ -428,7 +476,10 @@ impl ControlService {
     /* ---- Automation ---- */
 
     pub fn get_automation(&self) -> AutomationConfig {
-        self.automation.lock().map(|g| g.clone()).unwrap_or_default()
+        self.automation
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_automation(&self, config: AutomationConfig) {
@@ -465,13 +516,22 @@ impl ControlService {
 
     pub fn rgb_apply(&self, req: &RgbRequest) -> ControlResult {
         self.guard_rgb()?;
+        crate::logging::line(
+            "INFO",
+            &format!(
+                "[RGB WRITE] apply effect={} hue={} brightness={} speed={}",
+                req.effect, req.hue, req.brightness, req.speed
+            ),
+        );
         self.rgb.apply(req)
     }
     pub fn rgb_off(&self) -> ControlResult {
         self.guard_rgb()?;
+        crate::logging::line("INFO", "[RGB WRITE] off");
         self.rgb.off()
     }
     pub fn rgb_state(&self) -> Option<RgbState> {
+        crate::logging::line("INFO", "[RGB READ] state");
         self.rgb.state()
     }
     pub fn rgb_presets(&self) -> Vec<RgbProfile> {
@@ -485,6 +545,7 @@ impl ControlService {
     }
     pub fn rgb_apply_profile(&self, name: &str) -> ControlResult {
         self.guard_rgb()?;
+        crate::logging::line("INFO", &format!("[RGB WRITE] apply_profile '{name}'"));
         self.rgb.apply_profile(name)
     }
     pub fn rgb_delete_profile(&self, name: &str) -> Result<(), ControlError> {
@@ -506,39 +567,77 @@ impl ControlService {
     pub fn preview(&self, action: &ControlAction) -> ControlResult {
         match action {
             ControlAction::SetPowerProfile { profile } => {
-                self.require(self.capabilities.power.status.controllable, self.controllers.power.is_some())?;
+                self.require(
+                    self.capabilities.power.status.controllable,
+                    self.controllers.power.is_some(),
+                )?;
                 if !self.capabilities.power.profiles.is_empty()
-                    && !self.capabilities.power.profiles.iter().any(|p| p == profile)
+                    && !self
+                        .capabilities
+                        .power
+                        .profiles
+                        .iter()
+                        .any(|p| p == profile)
                 {
                     return Err(ControlError::InvalidParameter(format!(
                         "unknown profile '{profile}'"
                     )));
                 }
-                Ok(ControlOutcome::planned(format!("Would set power profile → {profile}")))
+                Ok(ControlOutcome::planned(format!(
+                    "Would set power profile → {profile}"
+                )))
             }
-            ControlAction::SetFanMode { mode, speed_percent } => {
-                self.require(self.capabilities.fan.status.controllable, self.controllers.fan.is_some())?;
+            ControlAction::SetFanMode {
+                mode,
+                speed_percent,
+            } => {
+                self.require(
+                    self.capabilities.fan.status.controllable,
+                    self.controllers.fan.is_some(),
+                )?;
                 let detail = speed_percent
                     .map(|s| format!(" @ {s}%"))
                     .unwrap_or_default();
-                Ok(ControlOutcome::planned(format!("Would set fan mode → {mode}{detail}")))
+                Ok(ControlOutcome::planned(format!(
+                    "Would set fan mode → {mode}{detail}"
+                )))
             }
             ControlAction::SetChargeLimit { limit } => {
-                self.require(self.capabilities.battery.status.controllable, self.controllers.battery.is_some())?;
+                self.require(
+                    self.capabilities.battery.status.controllable,
+                    self.controllers.battery.is_some(),
+                )?;
                 if *limit < 20 || *limit > 100 {
-                    return Err(ControlError::InvalidParameter("limit must be 20–100".into()));
+                    return Err(ControlError::InvalidParameter(
+                        "limit must be 20–100".into(),
+                    ));
                 }
-                Ok(ControlOutcome::planned(format!("Would cap charge at {limit}%")))
+                Ok(ControlOutcome::planned(format!(
+                    "Would cap charge at {limit}%"
+                )))
             }
-            ControlAction::SetRgb { effect, hue, brightness, speed } => {
-                self.require(self.capabilities.rgb.status.controllable, self.rgb.has_controller())?;
+            ControlAction::SetRgb {
+                effect,
+                hue,
+                brightness,
+                speed,
+            } => {
+                self.require(
+                    self.capabilities.rgb.status.controllable,
+                    self.rgb.has_controller(),
+                )?;
                 Ok(ControlOutcome::planned(format!(
                     "Would apply RGB → {effect} (hue {hue}, {brightness}% bright, speed {speed})"
                 )))
             }
             ControlAction::SetMux { mode } => {
-                self.require(self.capabilities.mux.status.controllable, self.controllers.mux.is_some())?;
-                Ok(ControlOutcome::planned(format!("Would switch GPU MUX → {mode} (reboot required)")))
+                self.require(
+                    self.capabilities.mux.status.controllable,
+                    self.controllers.mux.is_some(),
+                )?;
+                Ok(ControlOutcome::planned(format!(
+                    "Would switch GPU MUX → {mode} (reboot required)"
+                )))
             }
         }
     }
@@ -548,7 +647,9 @@ impl ControlService {
             return Err(ControlError::Unsupported);
         }
         if !has_driver {
-            return Err(ControlError::DriverUnavailable("no controller attached".into()));
+            return Err(ControlError::DriverUnavailable(
+                "no controller attached".into(),
+            ));
         }
         Ok(())
     }

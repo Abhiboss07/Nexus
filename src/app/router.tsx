@@ -14,6 +14,7 @@ const Battery = lazy(() => import("@/pages/battery"));
 const Storage = lazy(() => import("@/pages/storage"));
 const Tasks = lazy(() => import("@/pages/tasks"));
 const Doctor = lazy(() => import("@/pages/doctor"));
+const Optimizer = lazy(() => import("@/pages/optimizer"));
 const Integrations = lazy(() => import("@/pages/integrations"));
 const Game = lazy(() => import("@/pages/game"));
 const Intelligence = lazy(() => import("@/pages/intelligence"));
@@ -35,6 +36,7 @@ const routes: RouteObject[] = [
       { path: "storage", element: withSuspense(<Storage />) },
       { path: "tasks", element: withSuspense(<Tasks />) },
       { path: "doctor", element: withSuspense(<Doctor />) },
+      { path: "optimizer", element: withSuspense(<Optimizer />) },
       { path: "integrations", element: withSuspense(<Integrations />) },
       { path: "game", element: withSuspense(<Game />) },
       { path: "intelligence", element: withSuspense(<Intelligence />) },

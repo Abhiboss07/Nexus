@@ -17,7 +17,10 @@ import type {
   NexusProfile,
   PowerInfo,
 } from "./power-types";
-import type { BatteryReport, BatterySample } from "./battery-types";
+import type { BatteryReport, BatterySample, ChargeLimitEvidence } from "./battery-types";
+import type { StorageAnalysis, SystemScan } from "./sysdoctor-types";
+import type { Plugin } from "./plugins-types";
+import type { OptimizerReport } from "./optimizer-types";
 import type { CurvePoint, FanInfo, FanProfile, ThermalReport } from "./fan-types";
 import type { GpuCapabilities, GpuInfo, GpuIntelligence } from "./gpu-types";
 import type {
@@ -73,6 +76,16 @@ export async function getLatency(host?: string): Promise<number | null> {
 export async function listProcesses(limit?: number): Promise<ProcInfo[]> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProcInfo[]>("list_processes", { limit });
+}
+
+export type ProcessAction = "terminate" | "force-kill" | "stop" | "continue";
+export async function processAction(pid: number, action: ProcessAction): Promise<string> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("process_action", { pid, action });
+}
+export async function getProcessExe(pid: number): Promise<string | null> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string | null>("get_process_exe", { pid });
 }
 
 export async function getCapabilities(): Promise<HardwareCapabilities> {
@@ -140,6 +153,10 @@ export const setAutomation = (config: AutomationConfig) =>
 export const getBatteryReport = () => invoke<BatteryReport | null>("get_battery_report");
 export const getBatteryHistory = () => invoke<BatterySample[]>("get_battery_history");
 export const exportBatteryReport = () => invoke<string | null>("export_battery_report");
+export const getChargeLimitEvidence = () =>
+  invoke<ChargeLimitEvidence>("get_charge_limit_evidence");
+export const setChargeLimit = (percent: number) =>
+  invoke<string>("set_charge_limit", { percent });
 export const getFanInfo = () => invoke<FanInfo>("get_fan_info");
 export const getThermalReport = () => invoke<ThermalReport>("get_thermal_report");
 
@@ -192,6 +209,39 @@ export const mangohudApply = (config: string) =>
 /* ----- System integrations (Phase 4.5) ----- */
 
 export const getIntegrations = () => invoke<Integration[]>("get_integrations");
+/** One-click flatpak install (user-level). Returns the install log. */
+export const installIntegration = (flatpakId: string) =>
+  invoke<string>("install_integration", { flatpakId });
+
+/* ----- System Doctor: deep scan + storage analyzer ----- */
+
+export const runSystemScan = () => invoke<SystemScan>("run_system_scan");
+export const getStorageAnalysis = () => invoke<StorageAnalysis>("get_storage_analysis");
+export const deleteFile = (path: string) => invoke<string>("delete_file", { path });
+export const moveFile = (src: string, dest: string) =>
+  invoke<string>("move_file", { src, dest });
+export const revealFile = (path: string) => invoke<string>("reveal_file", { path });
+
+/* ----- Plugins ----- */
+
+export const listPlugins = () => invoke<Plugin[]>("list_plugins");
+export const setPluginEnabled = (id: string, enabled: boolean) =>
+  invoke<boolean>("set_plugin_enabled", { id, enabled });
+export const getPluginsDir = () => invoke<string>("get_plugins_dir");
+
+/* ----- Linux Optimizer ----- */
+
+export const optimizerScan = () => invoke<OptimizerReport>("optimizer_scan");
+export const optimizerDropCaches = (level: number) =>
+  invoke<string>("optimizer_drop_caches", { level });
+export const optimizerRemoveOrphans = () =>
+  invoke<string>("optimizer_remove_orphans");
+export const optimizerVacuumJournal = (days: number) =>
+  invoke<string>("optimizer_vacuum_journal", { days });
+export const optimizerCleanTemp = (id: string) =>
+  invoke<string>("optimizer_clean_temp", { id });
+export const optimizerSetStartup = (id: string, kind: string, enabled: boolean) =>
+  invoke<string>("optimizer_set_startup", { id, kind, enabled });
 
 /* ----- Intelligence Core (Phase 5.0) ----- */
 

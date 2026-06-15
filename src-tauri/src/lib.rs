@@ -9,9 +9,11 @@ mod commands;
 mod control;
 mod diagnostics;
 mod logging;
-mod telemetry;
+mod optimizer;
 #[cfg(test)]
 mod runtime_smoke;
+mod sysdoctor;
+mod telemetry;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -39,6 +41,10 @@ fn show_main(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let recovered = logging::init();
+    // Catch SIGINT/SIGTERM/SIGHUP for a clean shutdown (so Ctrl+C in
+    // `cargo tauri dev`, logout, and `systemctl` stop don't leave a stale crash
+    // marker), and SIGSEGV/SIGABRT/… to record a genuine crash.
+    logging::install_signal_handlers();
 
     let service = Arc::new(Mutex::new(TelemetryService::new()));
     let interval_ms = Arc::new(AtomicU64::new(1500));
@@ -49,7 +55,10 @@ pub fn run() {
 
     // Detect control capabilities once at startup.
     let control = ControlService::detect(telemetry::hardware::detect());
-    logging::line("INFO", &format!("Hardware: {}", control.profile().vendor_label));
+    logging::line(
+        "INFO",
+        &format!("Hardware: {}", control.profile().vendor_label),
+    );
 
     let app = tauri::Builder::default()
         // Focus the existing window if a second instance is launched.
@@ -73,6 +82,8 @@ pub fn run() {
             commands::set_poll_interval,
             commands::get_latency,
             commands::list_processes,
+            commands::process_action,
+            commands::get_process_exe,
             commands::get_capabilities,
             commands::get_active_drivers,
             commands::get_compatibility,
@@ -126,6 +137,23 @@ pub fn run() {
             commands::get_mangohud_status,
             commands::mangohud_apply,
             commands::get_integrations,
+            commands::install_integration,
+            commands::get_charge_limit_evidence,
+            commands::set_charge_limit,
+            commands::run_system_scan,
+            commands::get_storage_analysis,
+            commands::delete_file,
+            commands::move_file,
+            commands::reveal_file,
+            commands::list_plugins,
+            commands::set_plugin_enabled,
+            commands::get_plugins_dir,
+            commands::optimizer_scan,
+            commands::optimizer_drop_caches,
+            commands::optimizer_remove_orphans,
+            commands::optimizer_vacuum_journal,
+            commands::optimizer_clean_temp,
+            commands::optimizer_set_startup,
             commands::get_intelligence,
             commands::nlp_command,
             commands::run_health_check,
@@ -215,7 +243,10 @@ pub fn run() {
             });
 
             if recovered {
-                logging::line("INFO", "Started after an unclean shutdown (crash recovery).");
+                logging::line(
+                    "INFO",
+                    "Recovered after a crash in the previous session (panic/fatal signal).",
+                );
             }
             Ok(())
         })

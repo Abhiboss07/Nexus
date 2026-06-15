@@ -10,6 +10,7 @@ import {
   Settings,
   Plug,
   Brain,
+  Wand2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -92,6 +93,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Stethoscope,
     description: "Diagnostics, fixes & optimization",
     badge: "dot",
+    group: "system",
+  },
+  {
+    id: "optimizer",
+    label: "Linux Optimizer",
+    path: "/optimizer",
+    icon: Wand2,
+    description: "Reclaim memory & disk, prune packages, tame startup",
     group: "system",
   },
   {
