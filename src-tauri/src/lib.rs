@@ -8,6 +8,7 @@
 mod commands;
 mod control;
 mod diagnostics;
+mod linux_hub;
 mod logging;
 mod optimizer;
 #[cfg(test)]
@@ -159,6 +160,14 @@ pub fn run() {
             commands::storage_space_by_app,
             commands::trash_file,
             commands::service_action,
+            commands::hub_list_services,
+            commands::hub_service_control,
+            commands::hub_docker_overview,
+            commands::hub_docker_action,
+            commands::hub_flatpak_overview,
+            commands::hub_flatpak_action,
+            commands::hub_update_counts,
+            commands::hub_update_run,
             commands::list_plugins,
             commands::set_plugin_enabled,
             commands::get_plugins_dir,

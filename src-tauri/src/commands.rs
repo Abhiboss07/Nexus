@@ -29,6 +29,7 @@ use crate::control::registry::DriverInfo;
 use crate::control::rgb::RgbProfile;
 use crate::control::traits::{ControlError, ControlOutcome, RgbRequest, RgbState};
 use crate::control::{ControlAction, ControlService, HardwareCapabilities};
+use crate::linux_hub::{self, DockerOverview, FlatpakOverview, ServiceUnit, UpdateCounts};
 use crate::optimizer::{self, OptimizerReport};
 use crate::storage::{self, AppUsage, DupGroup, FileInfo, ScanRoot, TreeLevel};
 use crate::sysdoctor::{self, StorageAnalysis, SystemScan};
@@ -620,6 +621,52 @@ pub async fn trash_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn service_action(unit: String, action: String, user: bool) -> Result<String, String> {
     blocking(move || sysdoctor::service_action(&unit, &action, user)).await?
+}
+
+/* ----- Linux Hub (services / docker / flatpak / updates) — all async ----- */
+
+#[tauri::command]
+pub async fn hub_list_services(user: bool) -> Result<Vec<ServiceUnit>, String> {
+    blocking(move || linux_hub::list_services(user)).await
+}
+
+#[tauri::command]
+pub async fn hub_service_control(
+    name: String,
+    action: String,
+    user: bool,
+) -> Result<String, String> {
+    blocking(move || linux_hub::service_control(&name, &action, user)).await?
+}
+
+#[tauri::command]
+pub async fn hub_docker_overview() -> Result<DockerOverview, String> {
+    blocking(linux_hub::docker_overview).await
+}
+
+#[tauri::command]
+pub async fn hub_docker_action(kind: String, id: String, action: String) -> Result<String, String> {
+    blocking(move || linux_hub::docker_action(&kind, &id, &action)).await?
+}
+
+#[tauri::command]
+pub async fn hub_flatpak_overview() -> Result<FlatpakOverview, String> {
+    blocking(linux_hub::flatpak_overview).await
+}
+
+#[tauri::command]
+pub async fn hub_flatpak_action(id: String, action: String) -> Result<String, String> {
+    blocking(move || linux_hub::flatpak_action(&id, &action)).await?
+}
+
+#[tauri::command]
+pub async fn hub_update_counts() -> Result<UpdateCounts, String> {
+    blocking(linux_hub::update_counts).await
+}
+
+#[tauri::command]
+pub async fn hub_update_run(target: String) -> Result<String, String> {
+    blocking(move || linux_hub::update_run(&target)).await?
 }
 
 /* ----- Plugins ----- */
