@@ -16,6 +16,7 @@ use crate::logging;
 use crate::control::automation::AutomationConfig;
 use crate::control::battery::{BatteryReport, BatterySample, ChargeLimitEvidence};
 use crate::control::fan::{CurvePoint, FanInfo, FanProfile, ThermalReport};
+use crate::control::games::library::{self, ManualGame};
 use crate::control::games::profiles::GameLaunch;
 use crate::control::games::{Game, GameProfile, LauncherStatus, MangoHudStatus};
 use crate::control::gpu::{GpuCapabilities, GpuInfo, GpuIntelligence};
@@ -481,6 +482,36 @@ pub fn mangohud_apply(
     config: String,
 ) -> Result<(), ControlError> {
     control.mangohud_apply(&config)
+}
+
+/* ----- Manual game library (user-added games) ----- */
+
+#[tauri::command]
+pub fn list_manual_games() -> Vec<ManualGame> {
+    library::list()
+}
+
+#[tauri::command]
+pub fn add_manual_game(game: ManualGame) -> Result<ManualGame, String> {
+    library::add(game)
+}
+
+#[tauri::command]
+pub fn update_manual_game(game: ManualGame) -> Result<(), String> {
+    library::update(game)
+}
+
+#[tauri::command]
+pub fn delete_manual_game(id: String) -> Result<(), String> {
+    library::delete(&id)
+}
+
+/// Launch a manual game (detached). Async so spawning never blocks the UI.
+#[tauri::command]
+pub async fn launch_manual_game(id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || library::launch(&id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /* ----- System integrations (Phase 4.5) ----- */

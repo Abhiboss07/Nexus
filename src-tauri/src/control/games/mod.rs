@@ -1,6 +1,7 @@
 //! Gaming Center (Phase 4.0) — library scanner, per-game profiles, launcher
 //! integration, and MangoHud overlay configuration.
 
+pub mod library;
 pub mod mangohud;
 pub mod profiles;
 pub mod scanner;
