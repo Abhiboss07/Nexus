@@ -106,10 +106,15 @@ export interface Snapshot {
 
 export interface ProcInfo {
   pid: number;
+  ppid: number;
   name: string;
+  user: string;
   cpuPercent: number;
   memMb: number;
+  diskReadSec: number;
+  diskWriteSec: number;
   state: string;
+  exePath: string;
 }
 
 export interface HistoryPoint {

@@ -10,6 +10,6 @@ pub mod sysfs;
 pub mod types;
 
 pub use hardware::HardwareProfile;
-pub use processes::{ProcInfo, ProcessMonitor};
+pub use processes::ProcessMonitor;
 pub use service::TelemetryService;
 pub use types::*;
