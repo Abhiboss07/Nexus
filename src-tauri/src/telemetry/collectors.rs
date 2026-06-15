@@ -73,7 +73,7 @@ fn cpu_frequency_mhz() -> (u32, u32) {
             max = max.max(m);
         }
     }
-    let avg = if count > 0 { (sum / count) / 1000 } else { 0 };
+    let avg = sum.checked_div(count).map_or(0, |v| v / 1000);
     (avg as u32, (max / 1000) as u32)
 }
 
@@ -175,10 +175,18 @@ pub fn memory() -> MemoryTelemetry {
         total_bytes: total,
         used_bytes: used,
         available_bytes: available,
-        usage: if total > 0 { used as f32 / total as f32 * 100.0 } else { 0.0 },
+        usage: if total > 0 {
+            used as f32 / total as f32 * 100.0
+        } else {
+            0.0
+        },
         swap_total_bytes: swap_total,
         swap_used_bytes: swap_used,
-        swap_usage: if swap_total > 0 { swap_used as f32 / swap_total as f32 * 100.0 } else { 0.0 },
+        swap_usage: if swap_total > 0 {
+            swap_used as f32 / swap_total as f32 * 100.0
+        } else {
+            0.0
+        },
     }
 }
 
@@ -193,7 +201,7 @@ fn parse_csv_f32(s: &str) -> Option<f32> {
 fn nvidia_gpu() -> Option<GpuTelemetry> {
     let out = Command::new("nvidia-smi")
         .args([
-            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.gr,clocks.mem,power.draw,power.limit",
+            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.gr,clocks.mem,power.draw,power.limit,power.max_limit",
             "--format=csv,noheader,nounits",
         ])
         .output()
@@ -207,6 +215,13 @@ fn nvidia_gpu() -> Option<GpuTelemetry> {
     if f.len() < 9 {
         return None;
     }
+    // power.limit is N/A on Dynamic-Boost laptops; fall back to power.max_limit
+    // so the UI has the real ceiling (the 120 W TGP), and reject a bogus draw.
+    let power_max = f.get(9).and_then(|s| parse_csv_f32(s));
+    let power_draw = parse_csv_f32(f[7]).filter(|d| {
+        let ceiling = power_max.map(|m| m * 1.25).unwrap_or(400.0);
+        *d >= 0.0 && *d <= ceiling
+    });
     Some(GpuTelemetry {
         name: f[0].trim().to_string(),
         vendor: "NVIDIA".into(),
@@ -216,8 +231,8 @@ fn nvidia_gpu() -> Option<GpuTelemetry> {
         temperature_c: parse_csv_f32(f[4]),
         core_clock_mhz: parse_csv_f32(f[5]).map(|v| v as u32),
         mem_clock_mhz: parse_csv_f32(f[6]).map(|v| v as u32),
-        power_w: parse_csv_f32(f[7]),
-        power_limit_w: parse_csv_f32(f[8]),
+        power_w: power_draw,
+        power_limit_w: parse_csv_f32(f[8]).or(power_max),
     })
 }
 
@@ -232,8 +247,10 @@ fn amd_gpu(hw: &HwmonScan) -> Option<GpuTelemetry> {
             continue;
         }
         let usage = sysfs::read_f32(&format!("{dev}/gpu_busy_percent")).unwrap_or(0.0);
-        let vram_used = sysfs::read_u64(&format!("{dev}/mem_info_vram_used")).unwrap_or(0) / 1_048_576;
-        let vram_total = sysfs::read_u64(&format!("{dev}/mem_info_vram_total")).unwrap_or(0) / 1_048_576;
+        let vram_used =
+            sysfs::read_u64(&format!("{dev}/mem_info_vram_used")).unwrap_or(0) / 1_048_576;
+        let vram_total =
+            sysfs::read_u64(&format!("{dev}/mem_info_vram_total")).unwrap_or(0) / 1_048_576;
         return Some(GpuTelemetry {
             name: "AMD Radeon".into(),
             vendor: "AMD".into(),
@@ -338,7 +355,10 @@ pub fn storage(
             continue;
         }
         let fstype = f[1];
-        if matches!(fstype, "tmpfs" | "devtmpfs" | "overlay" | "squashfs" | "efivarfs") {
+        if matches!(
+            fstype,
+            "tmpfs" | "devtmpfs" | "overlay" | "squashfs" | "efivarfs"
+        ) {
             continue;
         }
         let total: u64 = f[3].parse().unwrap_or(0);
@@ -377,7 +397,11 @@ pub fn storage(
             temperature_c,
             read_bytes_sec: read_rate,
             write_bytes_sec: write_rate,
-            smart_status: if with_smart { smart_status(&base) } else { "unknown".into() },
+            smart_status: if with_smart {
+                smart_status(&base)
+            } else {
+                "unknown".into()
+            },
         });
     }
 
@@ -386,16 +410,23 @@ pub fn storage(
 }
 
 pub fn battery() -> Option<BatteryTelemetry> {
-    let base = ["/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"]
-        .into_iter()
-        .find(|p| sysfs::exists(p))?;
+    let base = [
+        "/sys/class/power_supply/BAT0",
+        "/sys/class/power_supply/BAT1",
+    ]
+    .into_iter()
+    .find(|p| sysfs::exists(p))?;
 
     let r_u = |f: &str| sysfs::read_u64(&format!("{base}/{f}"));
     let status = sysfs::read_string(&format!("{base}/status")).unwrap_or_else(|| "Unknown".into());
     let capacity = sysfs::read_f32(&format!("{base}/capacity")).unwrap_or(0.0);
     let cycle_count = r_u("cycle_count").unwrap_or(0) as u32;
-    let voltage_v = r_u("voltage_now").map(|v| v as f32 / 1_000_000.0).unwrap_or(0.0);
-    let power_draw_w = r_u("power_now").map(|p| p as f32 / 1_000_000.0).unwrap_or(0.0);
+    let voltage_v = r_u("voltage_now")
+        .map(|v| v as f32 / 1_000_000.0)
+        .unwrap_or(0.0);
+    let power_draw_w = r_u("power_now")
+        .map(|p| p as f32 / 1_000_000.0)
+        .unwrap_or(0.0);
 
     // Prefer energy_* (µWh); fall back to charge_* (µAh) × voltage.
     let (now_wh, full_wh, design_wh) = if let Some(en) = r_u("energy_now") {
@@ -413,7 +444,11 @@ pub fn battery() -> Option<BatteryTelemetry> {
         )
     };
 
-    let health = if design_wh > 0.0 { (full_wh / design_wh * 100.0).min(100.0) } else { 0.0 };
+    let health = if design_wh > 0.0 {
+        (full_wh / design_wh * 100.0).min(100.0)
+    } else {
+        0.0
+    };
 
     let time_remaining_min = if status.eq_ignore_ascii_case("Discharging") && power_draw_w > 0.1 {
         Some((now_wh / power_draw_w * 60.0) as u32)
@@ -452,7 +487,9 @@ pub fn network(prev: &mut Option<(String, u64, u64)>, dt: f64) -> NetworkTelemet
     // Choose the active physical interface with the most traffic.
     let mut best: Option<(String, u64, u64)> = None;
     for line in content.lines() {
-        let Some((iface, rest)) = line.split_once(':') else { continue };
+        let Some((iface, rest)) = line.split_once(':') else {
+            continue;
+        };
         let iface = iface.trim();
         if is_virtual_iface(iface) {
             continue;
@@ -461,7 +498,10 @@ pub fn network(prev: &mut Option<(String, u64, u64)>, dt: f64) -> NetworkTelemet
         if operstate.as_deref() != Some("up") {
             continue;
         }
-        let v: Vec<u64> = rest.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        let v: Vec<u64> = rest
+            .split_whitespace()
+            .filter_map(|x| x.parse().ok())
+            .collect();
         if v.len() < 9 {
             continue;
         }
@@ -495,7 +535,10 @@ pub fn fans(hw: &HwmonScan) -> Vec<FanTelemetry> {
     let mut out: Vec<FanTelemetry> = hw
         .fans
         .iter()
-        .map(|f| FanTelemetry { label: f.label.clone(), rpm: f.rpm })
+        .map(|f| FanTelemetry {
+            label: f.label.clone(),
+            rpm: f.rpm,
+        })
         .collect();
 
     // HP OMEN fan RPMs aren't exposed via hwmon — read them from the
@@ -503,7 +546,10 @@ pub fn fans(hw: &HwmonScan) -> Vec<FanTelemetry> {
     const OMEN_FAN: &str = "/sys/devices/platform/omen-rgb-keyboard/fan";
     for (file, label) in [("cpu_fan_rpm", "CPU Fan"), ("gpu_fan_rpm", "GPU Fan")] {
         if let Some(rpm) = sysfs::read_u64(&format!("{OMEN_FAN}/{file}")) {
-            out.push(FanTelemetry { label: label.into(), rpm: rpm as u32 });
+            out.push(FanTelemetry {
+                label: label.into(),
+                rpm: rpm as u32,
+            });
         }
     }
     out
@@ -524,12 +570,20 @@ pub fn thermals(
             temperature_c: t.celsius,
         })
         .collect();
-    ThermalsTelemetry { cpu_c, gpu_c, storage_c, sensors }
+    ThermalsTelemetry {
+        cpu_c,
+        gpu_c,
+        storage_c,
+        sensors,
+    }
 }
 
 /// One-shot ICMP latency probe (used by an on-demand command, not the hot loop).
 pub fn ping_latency(host: &str) -> Option<f32> {
-    let out = Command::new("ping").args(["-c", "1", "-W", "1", host]).output().ok()?;
+    let out = Command::new("ping")
+        .args(["-c", "1", "-W", "1", host])
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let idx = text.find("time=")?;
     text[idx + 5..]

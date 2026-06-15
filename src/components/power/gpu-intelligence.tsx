@@ -71,13 +71,15 @@ export function GpuIntelligence() {
             <div className="grid grid-cols-2 gap-x-lg sm:grid-cols-3">
               <StatRow label="Utilization" value={`${info.utilization}%`} />
               <StatRow label="Temp" value={`${info.temperatureC?.toFixed(0) ?? "—"}°C`} tone={(info.temperatureC ?? 0) > 82 ? "warning" : "success"} />
-              <StatRow label="Power" value={`${info.powerDrawW?.toFixed(0) ?? "—"} W`} />
+              {/* Three DISTINCT power figures — never conflate current draw with TGP. */}
+              <StatRow label="Current Draw" value={`${info.powerDrawW?.toFixed(0) ?? "—"} W`} />
+              <StatRow label="Max TGP" value={`${(info.powerMaxW ?? info.powerDefaultW)?.toFixed(0) ?? "—"} W`} />
+              <StatRow label="Power Limit" value={info.powerLimitW != null ? `${info.powerLimitW.toFixed(0)} W` : "Dynamic Boost"} />
               <StatRow label="Core Clock" value={`${info.clockGraphicsMhz ?? "—"} MHz`} />
               <StatRow label="Mem Clock" value={`${info.clockMemoryMhz ?? "—"} MHz`} />
               <StatRow label="Mem Speed" value={`${info.memEffectiveGbps?.toFixed(0) ?? "—"} Gbps`} />
               <StatRow label="PCIe" value={`Gen ${info.pcieGenCurrent ?? "—"} ×${info.pcieWidthCurrent ?? "—"}`} />
               <StatRow label="P-State" value={info.pstate} />
-              <StatRow label="TGP (default)" value={`${info.powerDefaultW?.toFixed(0) ?? "—"} W`} />
             </div>
             <div className="mt-md">
               <div className="mb-xs flex items-center justify-between text-xs">

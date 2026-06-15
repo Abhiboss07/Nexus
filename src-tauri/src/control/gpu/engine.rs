@@ -15,7 +15,10 @@ use serde::Serialize;
 
 fn smi_query(fields: &str) -> Option<Vec<String>> {
     let out = Command::new("nvidia-smi")
-        .args([&format!("--query-gpu={fields}"), "--format=csv,noheader,nounits"])
+        .args([
+            &format!("--query-gpu={fields}"),
+            "--format=csv,noheader,nounits",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -38,6 +41,37 @@ fn opt_u32(s: &str) -> Option<u32> {
 }
 fn opt_u64(s: &str) -> Option<u64> {
     opt_f32(s).map(|v| v as u64)
+}
+
+/// Reject an implausible power.draw reading. nvidia-smi sometimes spikes to a
+/// bogus value on RTD3/Dynamic-Boost laptops; anything beyond 1.25× the GPU's
+/// own max limit (or an absolute 400 W laptop ceiling when max is unknown) is
+/// treated as unreliable and dropped rather than shown.
+fn sane_draw(draw: Option<f32>, max: Option<f32>) -> Option<f32> {
+    let d = draw?;
+    if d < 0.0 {
+        return None;
+    }
+    let ceiling = max.map(|m| m * 1.25).unwrap_or(400.0);
+    if d > ceiling {
+        None
+    } else {
+        Some(d)
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    use super::sane_draw;
+
+    #[test]
+    fn rejects_garbage_draw_above_max() {
+        assert_eq!(sane_draw(Some(590.0), Some(120.0)), None);
+        assert_eq!(sane_draw(Some(80.0), Some(120.0)), Some(80.0));
+        assert_eq!(sane_draw(Some(1.67), Some(120.0)), Some(1.67));
+        assert_eq!(sane_draw(Some(450.0), None), None); // absolute ceiling
+        assert_eq!(sane_draw(None, Some(120.0)), None);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -97,7 +131,10 @@ pub fn gpu_info() -> Option<GpuInfo> {
         clock_sm_mhz: opt_u32(&f[9]),
         clock_memory_mhz: mem_clock,
         clock_video_mhz: opt_u32(&f[11]),
-        power_draw_w: opt_f32(&f[12]),
+        // nvidia-smi can momentarily report a garbage power.draw on RTD3/Dynamic
+        // Boost laptops (e.g. 590 W on a 120 W part). Reject readings that exceed
+        // the GPU's own max limit by a wide margin so the UI never shows nonsense.
+        power_draw_w: sane_draw(opt_f32(&f[12]), opt_f32(&f[16])),
         power_limit_w: opt_f32(&f[13]),
         power_default_w: opt_f32(&f[14]),
         power_min_w: opt_f32(&f[15]),
@@ -112,8 +149,8 @@ pub fn gpu_info() -> Option<GpuInfo> {
 }
 
 /* --------------------------------------------------------------------------
-   Capability discovery — real interfaces only, no assumptions.
-   -------------------------------------------------------------------------- */
+Capability discovery — real interfaces only, no assumptions.
+-------------------------------------------------------------------------- */
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,9 +211,13 @@ fn detect_caps() -> GpuCapabilities {
         .map(|s| s.split_whitespace().next().unwrap_or("").to_string())
         .unwrap_or_default();
 
-    let has_nvml = ["/usr/lib/libnvidia-ml.so.1", "/usr/lib/libnvidia-ml.so", "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1"]
-        .iter()
-        .any(|p| std::path::Path::new(p).exists());
+    let has_nvml = [
+        "/usr/lib/libnvidia-ml.so.1",
+        "/usr/lib/libnvidia-ml.so",
+        "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1",
+    ]
+    .iter()
+    .any(|p| std::path::Path::new(p).exists());
 
     // Enforced settable power limit present? (N/A on Dynamic-Boost laptops.)
     // NOTE: query directly — do NOT call gpu_info() here, it would re-enter this
@@ -224,8 +265,8 @@ pub fn capabilities() -> &'static GpuCapabilities {
 }
 
 /* --------------------------------------------------------------------------
-   GPU Intelligence — scores, bottleneck, VRAM pressure, recommendations.
-   -------------------------------------------------------------------------- */
+GPU Intelligence — scores, bottleneck, VRAM pressure, recommendations.
+-------------------------------------------------------------------------- */
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -248,7 +289,9 @@ pub struct GpuIntelligence {
 }
 
 pub fn thermal_score(temp: f32) -> u8 {
-    (100.0 - (temp - 55.0).max(0.0) * 1.6).clamp(0.0, 100.0).round() as u8
+    (100.0 - (temp - 55.0).max(0.0) * 1.6)
+        .clamp(0.0, 100.0)
+        .round() as u8
 }
 
 pub fn efficiency_score(util: f32, power: f32, default_power: f32) -> u8 {
@@ -293,32 +336,59 @@ pub fn intelligence(info: &GpuInfo, cpu_util: Option<f32>) -> GpuIntelligence {
     );
     // Health: driver present + thermal headroom + PCIe at full width.
     let pcie_ok = info.pcie_gen_current == info.pcie_gen_max;
-    let health = ((thermal as f32) * 0.6 + if pcie_ok { 40.0 } else { 25.0 }).clamp(0.0, 100.0).round() as u8;
-    // Gaming readiness: thermal headroom + VRAM free + full PCIe link.
-    let vram_free_score = (100.0 - vram_pressure).clamp(0.0, 100.0);
-    let gaming = ((thermal as f32) * 0.4 + vram_free_score * 0.35 + if pcie_ok { 25.0 } else { 10.0 })
+    let health = ((thermal as f32) * 0.6 + if pcie_ok { 40.0 } else { 25.0 })
         .clamp(0.0, 100.0)
         .round() as u8;
+    // Gaming readiness: thermal headroom + VRAM free + full PCIe link.
+    let vram_free_score = (100.0 - vram_pressure).clamp(0.0, 100.0);
+    let gaming =
+        ((thermal as f32) * 0.4 + vram_free_score * 0.35 + if pcie_ok { 25.0 } else { 10.0 })
+            .clamp(0.0, 100.0)
+            .round() as u8;
 
     let bottleneck = bottleneck(info.utilization, vram_pressure, cpu_util).to_string();
 
     let mut recs = Vec::new();
     if temp >= 85.0 {
-        recs.push(rec("warning", "GPU thermal headroom low", "GPU is hot — improve airflow or raise the fan curve before extended gaming."));
+        recs.push(rec(
+            "warning",
+            "GPU thermal headroom low",
+            "GPU is hot — improve airflow or raise the fan curve before extended gaming.",
+        ));
     }
     if vram_pressure >= 90.0 {
-        recs.push(rec("warning", "VRAM pressure high", "VRAM is nearly full — lower texture quality or close other GPU apps."));
+        recs.push(rec(
+            "warning",
+            "VRAM pressure high",
+            "VRAM is nearly full — lower texture quality or close other GPU apps.",
+        ));
     } else if vram_pressure >= 75.0 {
-        recs.push(rec("info", "VRAM filling up", "VRAM usage is climbing; watch for stutter at higher settings."));
+        recs.push(rec(
+            "info",
+            "VRAM filling up",
+            "VRAM usage is climbing; watch for stutter at higher settings.",
+        ));
     }
     if !pcie_ok && info.pcie_gen_max.is_some() {
-        recs.push(rec("info", "PCIe link downshifted", "GPU is below its max PCIe gen (power saving). It will ramp under load."));
+        recs.push(rec(
+            "info",
+            "PCIe link downshifted",
+            "GPU is below its max PCIe gen (power saving). It will ramp under load.",
+        ));
     }
     if bottleneck == "cpu" {
-        recs.push(rec("info", "CPU-bound", "The CPU is limiting GPU throughput — a higher power profile may help."));
+        recs.push(rec(
+            "info",
+            "CPU-bound",
+            "The CPU is limiting GPU throughput — a higher power profile may help.",
+        ));
     }
     if recs.is_empty() {
-        recs.push(rec("info", "GPU healthy", "Thermals, VRAM and link are all in good shape."));
+        recs.push(rec(
+            "info",
+            "GPU healthy",
+            "Thermals, VRAM and link are all in good shape.",
+        ));
     }
 
     GpuIntelligence {
@@ -333,7 +403,11 @@ pub fn intelligence(info: &GpuInfo, cpu_util: Option<f32>) -> GpuIntelligence {
 }
 
 fn rec(severity: &str, title: &str, detail: &str) -> GpuRecommendation {
-    GpuRecommendation { severity: severity.into(), title: title.into(), detail: detail.into() }
+    GpuRecommendation {
+        severity: severity.into(),
+        title: title.into(),
+        detail: detail.into(),
+    }
 }
 
 #[cfg(test)]

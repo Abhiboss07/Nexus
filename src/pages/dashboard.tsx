@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
   Cpu,
   CircuitBoard,
@@ -9,6 +10,7 @@ import {
   Thermometer,
   Zap,
   ShieldCheck,
+  Wand2,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
 import { MetricCard } from "@/components/cards/metric-card";
@@ -40,6 +42,7 @@ function trend(series: number[]): number {
 }
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const cpu = useCpu();
   const gpu = useGpu();
   const mem = useMemory();
@@ -191,8 +194,16 @@ export default function DashboardPage() {
           <ActionCard
             icon={ShieldCheck}
             title="Run System Doctor"
-            description="Diagnostics & optimization"
+            description="Deep scan — runs automatically on open"
             tone="warning"
+            onClick={() => navigate("/doctor")}
+          />
+          <ActionCard
+            icon={Wand2}
+            title="Linux Optimizer"
+            description="Reclaim memory, disk & prune startup"
+            tone="info"
+            onClick={() => navigate("/optimizer")}
           />
         </motion.div>
       </motion.div>
