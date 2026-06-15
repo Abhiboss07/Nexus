@@ -44,14 +44,24 @@ export function CapabilityBadge({ status }: { status: CapabilityStatus | null | 
   if (!status) return null;
   if (status.controllable) {
     return (
-      <span className="inline-flex items-center gap-xs rounded-full bg-success/12 px-xs py-[2px] text-2xs font-medium text-success">
-        <CheckCircle2 className="h-3 w-3" /> {status.driver || "ready"}
-      </span>
+      <GlassTooltip side="top" label={`Controlled via ${status.driver || "the system driver"}`}>
+        <span className="inline-flex items-center gap-xs rounded-full bg-success/12 px-xs py-[2px] text-2xs font-medium text-success">
+          <CheckCircle2 className="h-3 w-3" /> {status.driver || "ready"}
+        </span>
+      </GlassTooltip>
     );
   }
+  // Surface WHY it isn't controllable so testers don't read it as a bug.
+  const reason =
+    status.notes ||
+    (status.available
+      ? "Detected but not controllable on this system."
+      : "Not available on this system.");
   return (
-    <span className="inline-flex items-center gap-xs rounded-full bg-surface-raised px-xs py-[2px] text-2xs font-medium text-content-subtle">
-      <Lock className="h-3 w-3" /> {status.available ? "read-only" : "unavailable"}
-    </span>
+    <GlassTooltip side="top" label={reason}>
+      <span className="inline-flex items-center gap-xs rounded-full bg-surface-raised px-xs py-[2px] text-2xs font-medium text-content-subtle">
+        <Lock className="h-3 w-3" /> {status.available ? "read-only" : "unavailable"}
+      </span>
+    </GlassTooltip>
   );
 }
