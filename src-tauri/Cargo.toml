@@ -1,6 +1,6 @@
 [package]
 name = "nexus-control-center"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta.2"
 description = "Nexus Control Center — next-generation Linux desktop control center"
 authors = ["Nexus"]
 edition = "2021"
