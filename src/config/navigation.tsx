@@ -12,6 +12,7 @@ import {
   Brain,
   Wand2,
   FileSearch,
+  ServerCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -110,6 +111,14 @@ export const NAV_ITEMS: NavItem[] = [
     path: "/optimizer",
     icon: Wand2,
     description: "Reclaim memory & disk, prune packages, tame startup",
+    group: "system",
+  },
+  {
+    id: "linux-hub",
+    label: "Linux Hub",
+    path: "/linux-hub",
+    icon: ServerCog,
+    description: "Services, containers, Flatpak & a unified update center",
     group: "system",
   },
   {

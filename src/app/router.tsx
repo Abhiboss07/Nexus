@@ -16,6 +16,7 @@ const StorageAnalyzer = lazy(() => import("@/pages/storage-analyzer"));
 const Tasks = lazy(() => import("@/pages/tasks"));
 const Doctor = lazy(() => import("@/pages/doctor"));
 const Optimizer = lazy(() => import("@/pages/optimizer"));
+const LinuxHub = lazy(() => import("@/pages/linux-hub"));
 const Integrations = lazy(() => import("@/pages/integrations"));
 const Game = lazy(() => import("@/pages/game"));
 const Intelligence = lazy(() => import("@/pages/intelligence"));
@@ -39,6 +40,7 @@ const routes: RouteObject[] = [
       { path: "tasks", element: withSuspense(<Tasks />) },
       { path: "doctor", element: withSuspense(<Doctor />) },
       { path: "optimizer", element: withSuspense(<Optimizer />) },
+      { path: "linux-hub", element: withSuspense(<LinuxHub />) },
       { path: "integrations", element: withSuspense(<Integrations />) },
       { path: "game", element: withSuspense(<Game />) },
       { path: "intelligence", element: withSuspense(<Intelligence />) },

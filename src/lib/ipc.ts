@@ -28,6 +28,13 @@ import type {
   ScanRoot,
   TreeLevel,
 } from "./storage-types";
+import type {
+  DockerOverview,
+  FlatpakOverview,
+  ServiceActionKind,
+  ServiceUnit,
+  UpdateCounts,
+} from "./linux-hub-types";
 import type { CurvePoint, FanInfo, FanProfile, ThermalReport } from "./fan-types";
 import type { GpuCapabilities, GpuInfo, GpuIntelligence } from "./gpu-types";
 import type {
@@ -265,6 +272,22 @@ export const storageLargestFiles = (root: string, limit: number) =>
 export const storageDuplicates = (root: string, category: string) =>
   invoke<DupGroup[]>("storage_duplicates", { root, category });
 export const storageSpaceByApp = () => invoke<AppUsage[]>("storage_space_by_app");
+
+/* ----- Linux Hub ----- */
+
+export const hubListServices = (user: boolean) =>
+  invoke<ServiceUnit[]>("hub_list_services", { user });
+export const hubServiceControl = (name: string, action: ServiceActionKind, user: boolean) =>
+  invoke<string>("hub_service_control", { name, action, user });
+export const hubDockerOverview = () => invoke<DockerOverview>("hub_docker_overview");
+export const hubDockerAction = (kind: string, id: string, action: string) =>
+  invoke<string>("hub_docker_action", { kind, id, action });
+export const hubFlatpakOverview = () => invoke<FlatpakOverview>("hub_flatpak_overview");
+export const hubFlatpakAction = (id: string, action: string) =>
+  invoke<string>("hub_flatpak_action", { id, action });
+export const hubUpdateCounts = () => invoke<UpdateCounts>("hub_update_counts");
+export const hubUpdateRun = (target: string) =>
+  invoke<string>("hub_update_run", { target });
 
 /* ----- Plugins ----- */
 
