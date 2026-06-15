@@ -127,7 +127,18 @@ export default function RgbStudioPage() {
     }
   }, [live, power, effect, hue, brightness, speed, source, rgbCap]);
 
-  // Debounced auto-apply when any control changes (skips the initial mount).
+  // Keep a stable ref to the latest `apply` so the auto-apply effect can call it
+  // WITHOUT taking `apply` (and thus `live`/`source`/`rgbCap`) as a dependency.
+  const applyRef = useRef(apply);
+  useEffect(() => { applyRef.current = apply; }, [apply]);
+
+  // Debounced auto-apply — fires ONLY when a control *value* changes, which only
+  // happens through a user gesture (slider, effect, preset, power, import). It is
+  // deliberately NOT keyed on `apply`/`live`/`source`/`rgbCap`: those change as
+  // telemetry & capabilities hydrate after mount and on every poll tick, and
+  // keying on them caused unsolicited RGB writes at startup (issue: "RGB changes
+  // on launch"). `firstRun` additionally suppresses the initial mount, so startup
+  // is strictly read-only — no [RGB WRITE] happens without explicit user input.
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false;
@@ -135,9 +146,10 @@ export default function RgbStudioPage() {
     }
     if (!isKeyboard) return;
     window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(apply, 250);
+    debounce.current = window.setTimeout(() => applyRef.current(), 250);
     return () => window.clearTimeout(debounce.current);
-  }, [apply, isKeyboard]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effect, hue, brightness, speed, power, isKeyboard]);
 
   async function saveScene() {
     const name = window.prompt("Save lighting scene as:");
