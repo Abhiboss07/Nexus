@@ -60,3 +60,18 @@ export interface BatteryReport {
   degradation: DegradationTrend;
   recommendations: BatteryRecommendation[];
 }
+
+/** Evidence for whether Linux can cap this battery's charge level (Task 4). */
+export interface ChargeLimitProbe {
+  path: string;
+  exists: boolean;
+  purpose: string;
+}
+
+export interface ChargeLimitEvidence {
+  supported: boolean;
+  battery: string | null;
+  vendorLabel: string;
+  explanation: string;
+  probes: ChargeLimitProbe[];
+}

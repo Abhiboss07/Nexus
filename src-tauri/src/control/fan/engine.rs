@@ -40,7 +40,10 @@ fn kernel_log() -> Option<String> {
         vec!["journalctl", "-k", "-o", "cat", "--no-pager"],
         vec!["dmesg"],
     ] {
-        if let Ok(out) = std::process::Command::new(args[0]).args(&args[1..]).output() {
+        if let Ok(out) = std::process::Command::new(args[0])
+            .args(&args[1..])
+            .output()
+        {
             if out.status.success() {
                 let t = String::from_utf8_lossy(&out.stdout).to_string();
                 if t.contains("fan interface") || t.contains("omen_rgb_keyboard") {
@@ -70,14 +73,23 @@ fn detect_interface() -> FanInterface {
         }
         if line.contains("Victus fan table loaded") {
             table = true;
-            detail = line.split("omen_rgb_keyboard:").last().unwrap_or("").trim().to_string();
+            detail = line
+                .split("omen_rgb_keyboard:")
+                .last()
+                .unwrap_or("")
+                .trim()
+                .to_string();
         }
         if line.contains("manual curve disabled") {
             table = false;
         }
     }
     let curve_supported = name == "victus-s" && table;
-    FanInterface { name, curve_supported, detail }
+    FanInterface {
+        name,
+        curve_supported,
+        detail,
+    }
 }
 
 /// Cached, authoritative fan-interface detection from the driver's probe log.
@@ -86,7 +98,9 @@ pub fn fan_interface() -> &'static FanInterface {
 }
 
 fn read(attr: &str) -> Option<String> {
-    std::fs::read_to_string(format!("{FAN_BASE}/{attr}")).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(format!("{FAN_BASE}/{attr}"))
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 fn exists(attr: &str) -> bool {
     std::path::Path::new(&format!("{FAN_BASE}/{attr}")).exists()
@@ -114,7 +128,10 @@ pub fn parse_curve(raw: &str) -> Vec<CurvePoint> {
     raw.split_whitespace()
         .filter_map(|pair| {
             let (t, p) = pair.split_once(':')?;
-            Some(CurvePoint { temp_c: t.trim().parse().ok()?, pct: p.trim().parse().ok()? })
+            Some(CurvePoint {
+                temp_c: t.trim().parse().ok()?,
+                pct: p.trim().parse().ok()?,
+            })
         })
         .collect()
 }
@@ -229,7 +246,8 @@ impl FanThermalEngine {
         } else if writable {
             "Writable".into()
         } else {
-            "Fan control requires membership in the 'input' group (sudo usermod -aG input $USER)".into()
+            "Fan control requires membership in the 'input' group (sudo usermod -aG input $USER)"
+                .into()
         };
         FanCapabilities {
             available,
@@ -334,17 +352,27 @@ impl Default for FanThermalEngine {
 
 fn nvidia_gpu_temp() -> Option<f32> {
     let out = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-gpu=temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    String::from_utf8_lossy(&out.stdout).lines().next()?.trim().parse().ok()
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 pub fn thermal_score(hottest_c: f32) -> u8 {
-    (100.0 - (hottest_c - 55.0).max(0.0) * 1.6).clamp(0.0, 100.0).round() as u8
+    (100.0 - (hottest_c - 55.0).max(0.0) * 1.6)
+        .clamp(0.0, 100.0)
+        .round() as u8
 }
 
 pub fn thermal_grade(hottest_c: f32) -> &'static str {
@@ -358,7 +386,11 @@ pub fn thermal_grade(hottest_c: f32) -> &'static str {
 }
 
 fn rec(severity: &str, title: &str, detail: &str) -> ThermalRecommendation {
-    ThermalRecommendation { severity: severity.into(), title: title.into(), detail: detail.into() }
+    ThermalRecommendation {
+        severity: severity.into(),
+        title: title.into(),
+        detail: detail.into(),
+    }
 }
 
 fn thermal_recommendations(
@@ -369,21 +401,43 @@ fn thermal_recommendations(
 ) -> Vec<ThermalRecommendation> {
     let mut out = Vec::new();
     if cpu_c.is_some_and(|t| t >= 90.0) {
-        out.push(rec("critical", "CPU thermal limit", "CPU is at/over 90°C. Apply a more aggressive fan curve or reduce load."));
+        out.push(rec(
+            "critical",
+            "CPU thermal limit",
+            "CPU is at/over 90°C. Apply a more aggressive fan curve or reduce load.",
+        ));
     } else if cpu_c.is_some_and(|t| t >= 82.0) {
-        out.push(rec("warning", "CPU running hot", "CPU is above 82°C under load. A custom fan curve will lower peaks."));
+        out.push(rec(
+            "warning",
+            "CPU running hot",
+            "CPU is above 82°C under load. A custom fan curve will lower peaks.",
+        ));
     }
     if gpu_c.is_some_and(|t| t >= 83.0) {
-        out.push(rec("warning", "GPU running hot", "GPU is above 83°C. Increase airflow or cap the frame rate."));
+        out.push(rec(
+            "warning",
+            "GPU running hot",
+            "GPU is above 83°C. Increase airflow or cap the frame rate.",
+        ));
     }
     if ssd_c.is_some_and(|t| t >= 65.0) {
-        out.push(rec("info", "SSD warm", "NVMe above 65°C may thermal-throttle. Check airflow over the drive."));
+        out.push(rec(
+            "info",
+            "SSD warm",
+            "NVMe above 65°C may thermal-throttle. Check airflow over the drive.",
+        ));
     }
-    if !fan.fan_curve_enabled && (cpu_c.is_some_and(|t| t >= 78.0) || gpu_c.is_some_and(|t| t >= 78.0)) {
+    if !fan.fan_curve_enabled
+        && (cpu_c.is_some_and(|t| t >= 78.0) || gpu_c.is_some_and(|t| t >= 78.0))
+    {
         out.push(rec("info", "Enable a fan curve", "Temps are climbing with the firmware curve. A custom curve (Phase 3.4B) gives finer control."));
     }
     if out.is_empty() {
-        out.push(rec("info", "Thermals optimal", "Temperatures are well within range. No action needed."));
+        out.push(rec(
+            "info",
+            "Thermals optimal",
+            "Temperatures are well within range. No action needed.",
+        ));
     }
     out
 }
@@ -414,11 +468,18 @@ mod tests {
     fn recommends_fan_curve_when_hot_and_disabled() {
         let fan = FanInfo {
             capabilities: FanThermalEngine::new().capabilities(),
-            cpu_rpm: Some(3000), gpu_rpm: Some(3200), max_fan: false,
-            fan_curve_enabled: false, thermal_profile: "normal".into(), temp_zone: "auto".into(),
-            curve: vec![], attributes: vec![],
+            cpu_rpm: Some(3000),
+            gpu_rpm: Some(3200),
+            max_fan: false,
+            fan_curve_enabled: false,
+            thermal_profile: "normal".into(),
+            temp_zone: "auto".into(),
+            curve: vec![],
+            attributes: vec![],
         };
         let recs = thermal_recommendations(Some(84.0), Some(70.0), Some(40.0), &fan);
-        assert!(recs.iter().any(|r| r.title.contains("CPU") || r.title.contains("fan curve")));
+        assert!(recs
+            .iter()
+            .any(|r| r.title.contains("CPU") || r.title.contains("fan curve")));
     }
 }

@@ -34,23 +34,35 @@ pub fn validate_curve(points: &[CurvePoint]) -> Result<(), ControlError> {
     }
     for p in points {
         if p.temp_c < TEMP_RANGE.0 || p.temp_c > TEMP_RANGE.1 {
-            return Err(ControlError::InvalidParameter(format!("temp {} out of 0–120", p.temp_c)));
+            return Err(ControlError::InvalidParameter(format!(
+                "temp {} out of 0–120",
+                p.temp_c
+            )));
         }
         if p.pct < PCT_RANGE.0 || p.pct > PCT_RANGE.1 {
-            return Err(ControlError::InvalidParameter(format!("pct {} out of 0–100", p.pct)));
+            return Err(ControlError::InvalidParameter(format!(
+                "pct {} out of 0–100",
+                p.pct
+            )));
         }
     }
     Ok(())
 }
 
 pub fn format_curve(points: &[CurvePoint]) -> String {
-    points.iter().map(|p| format!("{}:{}", p.temp_c, p.pct)).collect::<Vec<_>>().join(" ")
+    points
+        .iter()
+        .map(|p| format!("{}:{}", p.temp_c, p.pct))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Stronger validation with **safety limits** — on top of range/count checks:
-///   * sorted, strictly-increasing temperatures (no duplicates)
-///   * monotonic non-decreasing fan % (never ramp *down* as temps rise)
-///   * the top point must command ≥50% fan; ≥85°C ⇒ ≥50%; ≥90°C ⇒ ≥70%
+///
+/// * sorted, strictly-increasing temperatures (no duplicates)
+/// * monotonic non-decreasing fan % (never ramp *down* as temps rise)
+/// * the top point must command ≥50% fan; ≥85°C ⇒ ≥50%; ≥90°C ⇒ ≥70%
+///
 /// Returns the safe, sorted points ready to write.
 pub fn validate_curve_safe(points: &[CurvePoint]) -> Result<Vec<CurvePoint>, ControlError> {
     validate_curve(points)?;
@@ -59,7 +71,9 @@ pub fn validate_curve_safe(points: &[CurvePoint]) -> Result<Vec<CurvePoint>, Con
 
     for w in sorted.windows(2) {
         if w[0].temp_c == w[1].temp_c {
-            return Err(ControlError::InvalidParameter("duplicate temperature point".into()));
+            return Err(ControlError::InvalidParameter(
+                "duplicate temperature point".into(),
+            ));
         }
         if w[1].pct < w[0].pct {
             return Err(ControlError::InvalidParameter(
@@ -75,10 +89,14 @@ pub fn validate_curve_safe(points: &[CurvePoint]) -> Result<Vec<CurvePoint>, Con
     }
     for p in &sorted {
         if p.temp_c >= 90 && p.pct < 70 {
-            return Err(ControlError::InvalidParameter("at ≥90°C the fan must be ≥70%".into()));
+            return Err(ControlError::InvalidParameter(
+                "at ≥90°C the fan must be ≥70%".into(),
+            ));
         }
         if p.temp_c >= 85 && p.pct < 50 {
-            return Err(ControlError::InvalidParameter("at ≥85°C the fan must be ≥50%".into()));
+            return Err(ControlError::InvalidParameter(
+                "at ≥85°C the fan must be ≥50%".into(),
+            ));
         }
     }
     Ok(sorted)
@@ -99,23 +117,34 @@ pub struct FanControlEngine {
 
 impl FanControlEngine {
     pub fn new() -> Self {
-        Self { writer: SafeWriter::new(FAN_BASE, Arc::new(RealFs)) }
+        Self {
+            writer: SafeWriter::new(FAN_BASE, Arc::new(RealFs)),
+        }
     }
 
     #[cfg(test)]
     fn with_fs(fs: Arc<dyn FsOps>) -> Self {
-        Self { writer: SafeWriter::new(FAN_BASE, fs) }
+        Self {
+            writer: SafeWriter::new(FAN_BASE, fs),
+        }
     }
 
     /// Verify a node now reads `expected`; if not, restore `prior` and error.
-    fn verify(&self, file: &str, expected: &str, prior: Option<String>) -> Result<(), ControlError> {
+    fn verify(
+        &self,
+        file: &str,
+        expected: &str,
+        prior: Option<String>,
+    ) -> Result<(), ControlError> {
         match self.writer.read(file) {
             Ok(now) if now == expected => Ok(()),
             Ok(now) => {
                 if let Some(p) = prior {
                     let _ = self.writer.apply(&[WriteOp::new(file, p)]);
                 }
-                Err(ControlError::Io(format!("{file} did not take (still '{now}')")))
+                Err(ControlError::Io(format!(
+                    "{file} did not take (still '{now}')"
+                )))
             }
             Err(_) => Ok(()), // unreadable EC-backed nodes can't be verified; accept the write
         }
@@ -123,10 +152,13 @@ impl FanControlEngine {
 
     pub fn set_thermal_profile(&self, name: &str) -> ControlResult {
         if !THERMAL_PROFILES.contains(&name) {
-            return Err(ControlError::InvalidParameter(format!("unknown profile '{name}'")));
+            return Err(ControlError::InvalidParameter(format!(
+                "unknown profile '{name}'"
+            )));
         }
         let prior = self.writer.read("thermal_profile").ok();
-        self.writer.apply(&[WriteOp::new("thermal_profile", name)])?;
+        self.writer
+            .apply(&[WriteOp::new("thermal_profile", name)])?;
         // thermal_profile reads back via EC byte→name; only fail on a *different
         // known* value (an unreadable/"unknown" node is accepted).
         if let Ok(now) = self.writer.read("thermal_profile") {
@@ -134,10 +166,16 @@ impl FanControlEngine {
                 if let Some(p) = prior {
                     let _ = self.writer.apply(&[WriteOp::new("thermal_profile", p)]);
                 }
-                return Err(ControlError::Io(format!("profile did not switch (still '{now}')")));
+                return Err(ControlError::Io(format!(
+                    "profile did not switch (still '{now}')"
+                )));
             }
         }
-        Ok(ControlOutcome { applied: true, dry_run: false, message: format!("Thermal profile → {name}") })
+        Ok(ControlOutcome {
+            applied: true,
+            dry_run: false,
+            message: format!("Thermal profile → {name}"),
+        })
     }
 
     pub fn set_max_fan(&self, on: bool) -> ControlResult {
@@ -145,7 +183,11 @@ impl FanControlEngine {
         let prior = self.writer.read("max_fan").ok();
         self.writer.apply(&[WriteOp::new("max_fan", value)])?;
         self.verify("max_fan", value, prior)?;
-        Ok(ControlOutcome { applied: true, dry_run: false, message: format!("Max fan {}", if on { "on" } else { "off" }) })
+        Ok(ControlOutcome {
+            applied: true,
+            dry_run: false,
+            message: format!("Max fan {}", if on { "on" } else { "off" }),
+        })
     }
 
     /// Apply a custom curve and enable it. Transactional: SafeWriter rolls back
@@ -167,7 +209,10 @@ impl FanControlEngine {
             if let Some(c) = prior_curve {
                 restore.push(WriteOp::new("fan_curve", c));
             }
-            restore.push(WriteOp::new("fan_curve_enable", prior_enable.unwrap_or_else(|| "0".into())));
+            restore.push(WriteOp::new(
+                "fan_curve_enable",
+                prior_enable.unwrap_or_else(|| "0".into()),
+            ));
             let _ = self.writer.apply(&restore);
             return Err(ControlError::Io("fan curve did not engage".into()));
         }
@@ -179,8 +224,13 @@ impl FanControlEngine {
     }
 
     pub fn disable_curve(&self) -> ControlResult {
-        self.writer.apply(&[WriteOp::new("fan_curve_enable", "0")])?;
-        Ok(ControlOutcome { applied: true, dry_run: false, message: "Reverted to firmware fan control".into() })
+        self.writer
+            .apply(&[WriteOp::new("fan_curve_enable", "0")])?;
+        Ok(ControlOutcome {
+            applied: true,
+            dry_run: false,
+            message: "Reverted to firmware fan control".into(),
+        })
     }
 
     /// Capture the current fan state so a failed multi-step change can be undone.
@@ -214,7 +264,11 @@ impl FanControlEngine {
             }
         }
         self.writer.apply(&ops)?;
-        Ok(ControlOutcome { applied: true, dry_run: false, message: "Restored previous fan state".into() })
+        Ok(ControlOutcome {
+            applied: true,
+            dry_run: false,
+            message: "Restored previous fan state".into(),
+        })
     }
 
     /// Apply a full fan profile. Composes thermal profile + curve/max-fan into a
@@ -281,7 +335,10 @@ mod tests {
         for (k, v) in extra {
             files.push((format!("{FAN_BASE}/{k}"), v.to_string()));
         }
-        let refs: Vec<(&str, &str)> = files.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let refs: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let fs = Arc::new(MockFs::new(&refs, readonly));
         (FanControlEngine::with_fs(fs.clone()), fs)
     }
@@ -301,23 +358,36 @@ mod tests {
         let (e, fs) = engine(&[], &[]);
         let out = e.set_thermal_profile("performance").unwrap();
         assert!(out.applied);
-        assert_eq!(fs.get(&format!("{FAN_BASE}/thermal_profile")).unwrap(), "performance");
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/thermal_profile")).unwrap(),
+            "performance"
+        );
         assert!(e.set_thermal_profile("turbo").is_err()); // invalid name
     }
 
     #[test]
     fn applies_and_enables_curve() {
         let (e, fs) = engine(&[], &[]);
-        e.set_fan_curve(&[pt(45, 20), pt(70, 60), pt(88, 100)]).unwrap();
-        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(), "45:20 70:60 88:100");
-        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve_enable")).unwrap(), "1");
+        e.set_fan_curve(&[pt(45, 20), pt(70, 60), pt(88, 100)])
+            .unwrap();
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(),
+            "45:20 70:60 88:100"
+        );
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/fan_curve_enable")).unwrap(),
+            "1"
+        );
     }
 
     #[test]
     fn permission_denied_is_mapped_and_nothing_changes() {
         let tp = format!("{FAN_BASE}/thermal_profile");
         let (e, fs) = engine(&[&tp], &[]);
-        assert!(matches!(e.set_thermal_profile("silent"), Err(ControlError::PermissionDenied)));
+        assert!(matches!(
+            e.set_thermal_profile("silent"),
+            Err(ControlError::PermissionDenied)
+        ));
         assert_eq!(fs.get(&tp).unwrap(), "normal"); // unchanged
     }
 
@@ -339,15 +409,25 @@ mod tests {
     fn apply_profile_composes_and_enables() {
         let (e, fs) = engine(&[], &[]);
         let p = FanProfile {
-            name: "Gaming".into(), builtin: true,
+            name: "Gaming".into(),
+            builtin: true,
             thermal_profile: Some("performance".into()),
             curve: vec![pt(45, 35), pt(60, 55), pt(75, 80), pt(88, 100)],
             max_fan: false,
         };
         e.apply_profile(&p).unwrap();
-        assert_eq!(fs.get(&format!("{FAN_BASE}/thermal_profile")).unwrap(), "performance");
-        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(), "45:35 60:55 75:80 88:100");
-        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve_enable")).unwrap(), "1");
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/thermal_profile")).unwrap(),
+            "performance"
+        );
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(),
+            "45:35 60:55 75:80 88:100"
+        );
+        assert_eq!(
+            fs.get(&format!("{FAN_BASE}/fan_curve_enable")).unwrap(),
+            "1"
+        );
     }
 
     #[test]
@@ -356,14 +436,16 @@ mod tests {
         let tp = format!("{FAN_BASE}/thermal_profile");
         let (e, fs) = engine(&[&tp], &[]);
         let p = FanProfile {
-            name: "Gaming".into(), builtin: true,
+            name: "Gaming".into(),
+            builtin: true,
             thermal_profile: Some("performance".into()),
             curve: vec![pt(45, 35), pt(88, 100)],
             max_fan: false,
         };
         assert!(e.apply_profile(&p).is_err());
         assert_eq!(fs.get(&tp).unwrap(), "normal"); // unchanged
-        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(), "(unset)"); // never applied
+        assert_eq!(fs.get(&format!("{FAN_BASE}/fan_curve")).unwrap(), "(unset)");
+        // never applied
     }
 
     #[test]

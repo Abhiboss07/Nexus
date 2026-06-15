@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   BatteryCharging,
@@ -14,6 +14,10 @@ import {
   Info,
   AlertTriangle,
   ShieldAlert,
+  ShieldOff,
+  CheckCircle2,
+  XCircle,
+  Lock,
 } from "lucide-react";
 import {
   Area,
@@ -32,13 +36,19 @@ import { RingGauge } from "@/components/ui/ring-gauge";
 import { Meter } from "@/components/ui/progress";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { RouteFallback } from "@/components/shell/route-fallback";
-import { CapabilityGate, CapabilityBadge } from "@/components/ui/capability-gate";
 import { useBattery, useCapability } from "@/hooks/use-telemetry";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
+import {
+  isTauri,
+  getChargeLimitEvidence,
+  setChargeLimit as applyChargeLimit,
+} from "@/lib/ipc";
+import type { ChargeLimitEvidence } from "@/lib/battery-types";
+import type { CapabilityStatus } from "@/lib/capability-types";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
-type Limit = "60" | "80" | "100";
+type Limit = 60 | 80 | 100;
 
 const SEV: Record<string, { icon: typeof Info; cls: string }> = {
   info: { icon: Info, cls: "bg-info/12 text-info" },
@@ -50,7 +60,6 @@ export default function BatteryPage() {
   const { report, history, exportReport } = useBatteryIntel();
   const liveBattery = useBattery();
   const batteryCap = useCapability("battery");
-  const [limit, setLimit] = useState<Limit>("80");
 
   if (!report) return <RouteFallback />;
 
@@ -169,27 +178,7 @@ export default function BatteryPage() {
           </motion.div>
 
           <motion.div variants={fadeUp}>
-            <GlassCard padding="lg" className="h-full">
-              <SectionTitle title="Charge Limit" description="Cap charge to reduce wear" action={<CapabilityBadge status={batteryCap?.status} />} />
-              <CapabilityGate status={batteryCap?.status} className="space-y-sm">
-                {(["60", "80", "100"] as Limit[]).map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => setLimit(l)}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg border p-md text-left transition-all",
-                      limit === l ? "border-accent/50 bg-accent/8" : "border-border hover:border-border-strong",
-                    )}
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-content">{l}%</p>
-                      <p className="text-2xs text-content-subtle">{l === "60" ? "Max longevity" : l === "80" ? "Recommended" : "Max runtime"}</p>
-                    </div>
-                    {limit === l && <StatusDot tone="accent" pulse={false} />}
-                  </button>
-                ))}
-              </CapabilityGate>
-            </GlassCard>
+            <ChargeLimitCard cap={batteryCap?.status} />
           </motion.div>
         </div>
 
@@ -249,6 +238,110 @@ export default function BatteryPage() {
         </motion.div>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * Charge Limit — never shows fake interactive controls. It probes the kernel for
+ * a real charge-threshold interface; if one exists, it offers 60/80/100 that
+ * write through it. If not, it explains *why* and shows the detected evidence.
+ */
+function ChargeLimitCard({ cap }: { cap?: CapabilityStatus }) {
+  const [ev, setEv] = useState<ChargeLimitEvidence | null>(null);
+  const [limit, setLimit] = useState<Limit>(80);
+  const [status, setStatus] = useState<{ kind: "ok" | "error"; msg: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (isTauri()) getChargeLimitEvidence().then(setEv).catch(() => setEv(null));
+  }, []);
+
+  // Outside Tauri (browser demo) we cannot probe — be honest about that too.
+  const supported = ev?.supported ?? false;
+
+  async function apply(l: Limit) {
+    setLimit(l);
+    if (!isTauri()) { setStatus({ kind: "ok", msg: `Demo — would cap charge at ${l}%.` }); return; }
+    setBusy(true);
+    try {
+      const msg = await applyChargeLimit(l);
+      setStatus({ kind: "ok", msg });
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg" className="h-full">
+      <SectionTitle
+        title="Charge Limit"
+        description="Cap charge to reduce battery wear"
+        action={
+          supported ? (
+            <Badge variant="success"><CheckCircle2 className="h-3 w-3" /> available</Badge>
+          ) : (
+            <Badge variant="neutral"><Lock className="h-3 w-3" /> firmware-limited</Badge>
+          )
+        }
+      />
+
+      {status && (
+        <div className={cn("mb-sm flex items-center gap-xs rounded-md border p-sm text-xs", status.kind === "error" ? "border-danger/30 bg-danger/10 text-danger" : "border-success/30 bg-success/10 text-success")}>
+          {status.kind === "error" ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+          <span>{status.msg}</span>
+        </div>
+      )}
+
+      {supported ? (
+        <div className="space-y-sm">
+          {([60, 80, 100] as Limit[]).map((l) => (
+            <button
+              key={l}
+              disabled={busy}
+              onClick={() => apply(l)}
+              className={cn(
+                "flex w-full items-center justify-between rounded-lg border p-md text-left transition-all",
+                limit === l ? "border-accent/50 bg-accent/8" : "border-border hover:border-border-strong",
+              )}
+            >
+              <div>
+                <p className="text-sm font-semibold text-content">{l}%</p>
+                <p className="text-2xs text-content-subtle">{l === 60 ? "Max longevity" : l === 80 ? "Recommended" : "Max runtime"}</p>
+              </div>
+              {limit === l && <StatusDot tone="accent" pulse={false} />}
+            </button>
+          ))}
+          <p className="text-2xs text-content-subtle">Writes to <code>charge_control_end_threshold</code> via the kernel.</p>
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-start gap-sm rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+            <ShieldOff className="mt-0.5 h-5 w-5 shrink-0 text-content-subtle" />
+            <p className="text-sm text-content-muted">
+              {ev?.explanation ??
+                (cap?.notes ||
+                  "Your firmware does not expose battery charge thresholds to Linux.")}
+            </p>
+          </div>
+          {ev && ev.probes.length > 0 && (
+            <div className="mt-sm">
+              <p className="mb-xs text-2xs uppercase tracking-wider text-content-subtle">Detected evidence</p>
+              <div className="space-y-2xs">
+                {ev.probes.map((p) => (
+                  <div key={p.path} className="flex items-center gap-xs rounded-md bg-surface-sunken/40 px-sm py-2xs">
+                    {p.exists ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" /> : <XCircle className="h-3.5 w-3.5 shrink-0 text-content-subtle" />}
+                    <code className="min-w-0 flex-1 truncate text-2xs text-content-muted" title={`${p.path} — ${p.purpose}`}>{p.path.replace("/sys/class/power_supply/", "").replace("/sys/devices/platform/", "")}</code>
+                    <span className="shrink-0 text-2xs text-content-subtle">{p.exists ? "present" : "absent"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </GlassCard>
   );
 }
 

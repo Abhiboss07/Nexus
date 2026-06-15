@@ -32,6 +32,11 @@ impl Vendor {
             Vendor::Generic => "Generic Linux",
         }
     }
+
+    /// True for HP gaming machines (OMEN / Victus).
+    pub fn is_hp(self) -> bool {
+        matches!(self, Vendor::Omen | Vendor::Victus)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

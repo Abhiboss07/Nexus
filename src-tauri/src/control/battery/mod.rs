@@ -3,4 +3,7 @@
 pub mod analytics;
 pub mod engine;
 
-pub use engine::{BatteryEngine, BatteryReport, BatterySample};
+pub use engine::{
+    charge_limit_evidence, set_charge_limit, BatteryEngine, BatteryReport, BatterySample,
+    ChargeLimitEvidence,
+};

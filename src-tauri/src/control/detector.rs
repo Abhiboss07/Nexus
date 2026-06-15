@@ -27,15 +27,23 @@ impl SystemProbe for LiveProbe {
         std::path::Path::new(path).exists()
     }
     fn read(&self, path: &str) -> Option<String> {
-        std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.trim().to_string())
     }
     fn list(&self, dir: &str) -> Vec<String> {
         std::fs::read_dir(dir)
-            .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect())
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect()
+            })
             .unwrap_or_default()
     }
     fn command_exists(&self, bin: &str) -> bool {
-        let Some(path) = std::env::var_os("PATH") else { return false };
+        let Some(path) = std::env::var_os("PATH") else {
+            return false;
+        };
         std::env::split_paths(&path).any(|p| p.join(bin).is_file())
     }
 }
@@ -53,9 +61,12 @@ impl<'p> CapabilityDetector<'p> {
     }
 
     fn battery_base(&self) -> Option<&'static str> {
-        ["/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"]
-            .into_iter()
-            .find(|b| self.probe.path_exists(b))
+        [
+            "/sys/class/power_supply/BAT0",
+            "/sys/class/power_supply/BAT1",
+        ]
+        .into_iter()
+        .find(|b| self.probe.path_exists(b))
     }
 
     /// Count hwmon channels matching `fan*_input`.
@@ -83,10 +94,14 @@ impl<'p> CapabilityDetector<'p> {
     }
 
     fn detect_power(&self) -> PowerCapability {
-        let choices = self.probe.read("/sys/firmware/acpi/platform_profile_choices");
+        let choices = self
+            .probe
+            .read("/sys/firmware/acpi/platform_profile_choices");
         let current = self.probe.read("/sys/firmware/acpi/platform_profile");
         let ppd = self.probe.command_exists("powerprofilesctl");
-        let rapl = self.probe.path_exists("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw");
+        let rapl = self
+            .probe
+            .path_exists("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw");
 
         if let Some(choices) = choices {
             let profiles: Vec<String> = choices.split_whitespace().map(String::from).collect();
@@ -99,13 +114,20 @@ impl<'p> CapabilityDetector<'p> {
         } else if ppd {
             PowerCapability {
                 status: CapabilityStatus::full("power-profiles-daemon"),
-                profiles: vec!["power-saver".into(), "balanced".into(), "performance".into()],
+                profiles: vec![
+                    "power-saver".into(),
+                    "balanced".into(),
+                    "performance".into(),
+                ],
                 current_profile: None,
                 tunable_tdp: rapl,
             }
         } else {
             PowerCapability {
-                status: CapabilityStatus::read_only("cpufreq", "No platform power profiles exposed"),
+                status: CapabilityStatus::read_only(
+                    "cpufreq",
+                    "No platform power profiles exposed",
+                ),
                 profiles: vec![],
                 current_profile: None,
                 tunable_tdp: rapl,
@@ -113,21 +135,33 @@ impl<'p> CapabilityDetector<'p> {
         }
     }
 
-    fn detect_battery(&self) -> BatteryCapability {
+    fn detect_battery(&self, profile: &HardwareProfile) -> BatteryCapability {
         let Some(base) = self.battery_base() else {
             return BatteryCapability {
                 status: CapabilityStatus::unavailable("No battery present"),
                 ..Default::default()
             };
         };
-        let charge_limit = self.probe.path_exists(&format!("{base}/charge_control_end_threshold"));
+        let charge_limit = self
+            .probe
+            .path_exists(&format!("{base}/charge_control_end_threshold"));
         let conservation = self.probe.path_exists(&format!("{base}/charge_behaviour"))
-            || self.probe.path_exists("/sys/bus/platform/drivers/ideapad_acpi");
+            || self
+                .probe
+                .path_exists("/sys/bus/platform/drivers/ideapad_acpi");
 
         let status = if charge_limit || conservation {
             CapabilityStatus::full("power_supply sysfs")
+        } else if profile.vendor.is_hp() {
+            CapabilityStatus::read_only(
+                "power_supply",
+                "HP firmware exposes no battery charge-threshold interface on Linux (no charge_control_end_threshold / charge_behaviour / hp-wmi node).",
+            )
         } else {
-            CapabilityStatus::read_only("power_supply", "Charge threshold not exposed by firmware")
+            CapabilityStatus::read_only(
+                "power_supply",
+                "This firmware does not expose a battery charge-threshold interface to Linux.",
+            )
         };
 
         BatteryCapability {
@@ -140,25 +174,69 @@ impl<'p> CapabilityDetector<'p> {
 
     fn detect_fan(&self, profile: &HardwareProfile) -> FanCapability {
         let fan_count = self.fan_input_count();
-        let hp_wmi = profile.supports_fan_control
-            && self.probe.path_exists("/sys/devices/platform/hp-wmi");
+        // The HP OMEN/Victus fan interface is exposed by the `omen-rgb-keyboard`
+        // driver under its own platform device — NOT via hp-wmi or hwmon. The
+        // detector must recognize it directly, otherwise `caps.fan` reports
+        // "unavailable" while the FanThermalEngine (and the real, writable sysfs
+        // nodes) report a working interface — the false-warning inconsistency
+        // (Task 5). The write-safety gate (`WriteGate::apply_to`) still has the
+        // final say on whether writes are permitted on this exact board.
+        let omen_fan = "/sys/devices/platform/omen-rgb-keyboard/fan/fan_curve";
+        let omen_thermal = "/sys/devices/platform/omen-rgb-keyboard/fan/thermal_profile";
+        let omen_present = self.probe.path_exists(omen_fan) || self.probe.path_exists(omen_thermal);
+        let hp_wmi =
+            profile.supports_fan_control && self.probe.path_exists("/sys/devices/platform/hp-wmi");
         let pwm = self.has_pwm();
 
-        let status = if hp_wmi {
-            CapabilityStatus::full("hp-wmi")
+        // OMEN fans: CPU + GPU, reported by the driver (not hwmon).
+        let omen_fans = ["cpu_fan_rpm", "gpu_fan_rpm"]
+            .iter()
+            .filter(|a| {
+                self.probe
+                    .path_exists(&format!("/sys/devices/platform/omen-rgb-keyboard/fan/{a}"))
+            })
+            .count() as u32;
+
+        let (status, count, modes) = if omen_present {
+            (
+                CapabilityStatus::full("omen-rgb-keyboard"),
+                omen_fans.max(fan_count),
+                vec!["silent".into(), "normal".into(), "performance".into()],
+            )
+        } else if hp_wmi {
+            (
+                CapabilityStatus::full("hp-wmi"),
+                fan_count,
+                FAN_MODES.iter().map(|s| s.to_string()).collect(),
+            )
         } else if pwm {
-            CapabilityStatus::full("hwmon pwm")
+            (
+                CapabilityStatus::full("hwmon pwm"),
+                fan_count,
+                FAN_MODES.iter().map(|s| s.to_string()).collect(),
+            )
         } else if fan_count > 0 {
-            CapabilityStatus::read_only("hwmon", "Fan speed readable but not controllable")
+            (
+                CapabilityStatus::read_only(
+                    "hwmon",
+                    "Fan speed is readable but no write interface is exposed by the driver.",
+                ),
+                fan_count,
+                FAN_MODES.iter().map(|s| s.to_string()).collect(),
+            )
         } else {
-            CapabilityStatus::unavailable("No fan sensors detected (needs a platform driver)")
+            (
+                CapabilityStatus::unavailable("Driver unavailable — no fan control interface (omen-rgb-keyboard / hp-wmi / hwmon PWM) is present."),
+                0,
+                FAN_MODES.iter().map(|s| s.to_string()).collect(),
+            )
         };
 
         FanCapability {
             status,
-            fan_count,
+            fan_count: count,
             manual_pwm: pwm,
-            modes: FAN_MODES.iter().map(|s| s.to_string()).collect(),
+            modes,
         }
     }
 
@@ -195,12 +273,16 @@ impl<'p> CapabilityDetector<'p> {
 
     fn detect_mux(&self) -> MuxCapability {
         let supergfx = self.probe.command_exists("supergfxctl");
-        let asus_mux = self.probe.path_exists("/sys/devices/platform/asus-nb-wmi/dgpu_disable");
+        let asus_mux = self
+            .probe
+            .path_exists("/sys/devices/platform/asus-nb-wmi/dgpu_disable");
         let available = supergfx || asus_mux;
         let status = if available {
             CapabilityStatus::full(if supergfx { "supergfxctl" } else { "asus-wmi" })
         } else {
-            CapabilityStatus::unavailable("No GPU MUX/switching interface found")
+            CapabilityStatus::unavailable(
+                "No controllable MUX interface detected (no supergfxctl, no vendor dgpu_disable/MUX node). Graphics stay in hybrid mode.",
+            )
         };
         MuxCapability {
             status,
@@ -217,7 +299,7 @@ impl<'p> CapabilityDetector<'p> {
             rgb: self.detect_rgb(),
             fan: self.detect_fan(profile),
             power: self.detect_power(),
-            battery: self.detect_battery(),
+            battery: self.detect_battery(profile),
             mux: self.detect_mux(),
         }
     }
@@ -237,14 +319,19 @@ pub struct MockProbe {
 #[cfg(test)]
 impl MockProbe {
     pub fn new() -> Self {
-        Self { files: HashMap::new(), dirs: HashMap::new(), commands: HashSet::new() }
+        Self {
+            files: HashMap::new(),
+            dirs: HashMap::new(),
+            commands: HashSet::new(),
+        }
     }
     pub fn file(mut self, path: &str, contents: &str) -> Self {
         self.files.insert(path.into(), contents.into());
         self
     }
     pub fn dir(mut self, path: &str, entries: &[&str]) -> Self {
-        self.dirs.insert(path.into(), entries.iter().map(|s| s.to_string()).collect());
+        self.dirs
+            .insert(path.into(), entries.iter().map(|s| s.to_string()).collect());
         self
     }
     pub fn command(mut self, bin: &str) -> Self {
@@ -303,7 +390,10 @@ mod tests {
     #[test]
     fn power_profiles_detected_from_platform_profile() {
         let probe = MockProbe::new()
-            .file("/sys/firmware/acpi/platform_profile_choices", "low-power balanced performance")
+            .file(
+                "/sys/firmware/acpi/platform_profile_choices",
+                "low-power balanced performance",
+            )
             .file("/sys/firmware/acpi/platform_profile", "balanced");
         let caps = CapabilityDetector::new(&probe).detect(&omen_profile());
         assert!(caps.power.status.controllable);
@@ -342,8 +432,10 @@ mod tests {
 
     #[test]
     fn battery_charge_limit_detected() {
-        let probe = MockProbe::new()
-            .file("/sys/class/power_supply/BAT0/charge_control_end_threshold", "100");
+        let probe = MockProbe::new().file(
+            "/sys/class/power_supply/BAT0/charge_control_end_threshold",
+            "100",
+        );
         let caps = CapabilityDetector::new(&probe).detect(&omen_profile());
         assert!(caps.battery.charge_limit);
         assert_eq!(caps.battery.limit_range, Some((20, 100)));

@@ -23,13 +23,28 @@ pub struct CapabilityStatus {
 
 impl CapabilityStatus {
     pub fn unavailable(notes: impl Into<String>) -> Self {
-        Self { available: false, controllable: false, driver: String::new(), notes: notes.into() }
+        Self {
+            available: false,
+            controllable: false,
+            driver: String::new(),
+            notes: notes.into(),
+        }
     }
     pub fn read_only(driver: impl Into<String>, notes: impl Into<String>) -> Self {
-        Self { available: true, controllable: false, driver: driver.into(), notes: notes.into() }
+        Self {
+            available: true,
+            controllable: false,
+            driver: driver.into(),
+            notes: notes.into(),
+        }
     }
     pub fn full(driver: impl Into<String>) -> Self {
-        Self { available: true, controllable: true, driver: driver.into(), notes: String::new() }
+        Self {
+            available: true,
+            controllable: true,
+            driver: driver.into(),
+            notes: String::new(),
+        }
     }
 }
 
