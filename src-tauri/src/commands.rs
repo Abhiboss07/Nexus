@@ -26,7 +26,7 @@ use crate::control::nexus::NexusProfile;
 use crate::control::plugins::Plugin;
 use crate::control::power::PowerInfo;
 use crate::control::registry::DriverInfo;
-use crate::control::rgb::RgbProfile;
+use crate::control::rgb::{RgbProfile, RgbSource};
 use crate::control::traits::{ControlError, ControlOutcome, RgbRequest, RgbState};
 use crate::control::{ControlAction, ControlService, HardwareCapabilities};
 use crate::linux_hub::{self, DockerOverview, FlatpakOverview, ServiceUnit, UpdateCounts};
@@ -267,7 +267,8 @@ pub fn apply_nexus_profile(
     control: State<'_, ControlService>,
     id: String,
 ) -> Result<ControlOutcome, ControlError> {
-    control.apply_nexus_profile(&id)
+    // Invoked over IPC == explicit user action (clicked a profile in Settings).
+    control.apply_nexus_profile(&id, RgbSource::User)
 }
 
 #[tauri::command]
@@ -468,7 +469,8 @@ pub fn apply_game_profile(
     control: State<'_, ControlService>,
     game_id: String,
 ) -> Result<ControlOutcome, ControlError> {
-    control.apply_game_profile(&game_id)
+    // Invoked over IPC == explicit user action (clicked Play / Apply on a game).
+    control.apply_game_profile(&game_id, RgbSource::User)
 }
 
 /* ----- MangoHud overlay ----- */
@@ -526,15 +528,69 @@ pub async fn get_integrations() -> Result<Vec<Integration>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Progress event for a one-click install, emitted on `integration-progress`.
+/// Phases are REAL backend steps (no fabricated percentages): preparing →
+/// installing → verifying → installed | failed.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallProgress {
+    flatpak_id: String,
+    phase: String,
+    version: Option<String>,
+}
+
 /// One-click flatpak install for an integration (user-level, no sudo). Async:
-/// `flatpak install` blocks for a while; keep it off the UI thread.
+/// `flatpak install` blocks for a while; keep it off the UI thread. Emits
+/// `integration-progress` events so the UI can show a live state machine.
 #[tauri::command]
-pub async fn install_integration(flatpak_id: String) -> Result<String, String> {
+pub async fn install_integration(
+    app: tauri::AppHandle,
+    flatpak_id: String,
+) -> Result<String, String> {
+    use crate::control::integrations as ig;
+    use tauri::Emitter;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::control::integrations::install_integration(&flatpak_id)
+        let emit = |phase: &str, version: Option<String>| {
+            let _ = app.emit(
+                "integration-progress",
+                InstallProgress {
+                    flatpak_id: flatpak_id.clone(),
+                    phase: phase.into(),
+                    version,
+                },
+            );
+        };
+        emit("preparing", None);
+        ig::ensure_ready(&flatpak_id)?;
+        emit("installing", None);
+        ig::run_install(&flatpak_id)?;
+        emit("verifying", None);
+        let version = ig::installed_flatpak_version(&flatpak_id);
+        emit("installed", version.clone());
+        Ok(match version {
+            Some(v) => format!("Installed · v{v}"),
+            None => "Installed via Flathub.".into(),
+        })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Flatpak readiness (is flatpak installed, is the Flathub remote configured) so
+/// the UI can prompt before an install can fail.
+#[tauri::command]
+pub async fn flatpak_health() -> Result<crate::control::integrations::FlatpakHealth, String> {
+    tauri::async_runtime::spawn_blocking(crate::control::integrations::flatpak_health)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// One-click "Add Flathub" (user-scoped, idempotent).
+#[tauri::command]
+pub async fn add_flathub() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(crate::control::integrations::add_flathub)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /* ----- Battery charge-limit evidence (Task 4 — hardware truth) ----- */

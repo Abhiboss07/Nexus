@@ -146,6 +146,8 @@ pub fn run() {
             commands::launch_manual_game,
             commands::get_integrations,
             commands::install_integration,
+            commands::flatpak_health,
+            commands::add_flathub,
             commands::get_charge_limit_evidence,
             commands::set_charge_limit,
             commands::run_system_scan,
@@ -247,20 +249,40 @@ pub fn run() {
             let auto_handle = app.handle().clone();
             std::thread::spawn(move || {
                 let mut last_applied: Option<String> = None;
+                // `primed` guards against writing on launch: RGB (and the rest of
+                // a profile) must NEVER change just because Nexus started into an
+                // already-matching condition. The first evaluation only records
+                // the baseline; thereafter we apply solely on a genuine condition
+                // *transition*. Re-armed whenever automation is toggled off→on.
+                let mut primed = false;
                 loop {
                     std::thread::sleep(Duration::from_secs(6));
                     let svc = auto_handle.state::<ControlService>();
                     let cfg = svc.get_automation();
                     if !cfg.enabled {
                         last_applied = None;
+                        primed = false;
                         continue;
                     }
                     let ctx = control::automation::gather_context();
-                    if let Some(id) = control::automation::evaluate(&cfg, &ctx) {
+                    let matched = control::automation::evaluate(&cfg, &ctx);
+                    if !primed {
+                        last_applied = matched;
+                        primed = true;
+                        logging::line(
+                            "INFO",
+                            "Automation watcher primed — baseline recorded, 0 writes on startup",
+                        );
+                        continue;
+                    }
+                    if let Some(id) = matched {
                         if last_applied.as_deref() != Some(id.as_str()) {
-                            let _ = svc.apply_nexus_profile(&id);
+                            let _ = svc
+                                .apply_nexus_profile(&id, control::rgb::RgbSource::Automation);
                             last_applied = Some(id);
                         }
+                    } else {
+                        last_applied = None;
                     }
                 }
             });
@@ -273,19 +295,41 @@ pub fn run() {
             std::thread::spawn(move || {
                 let mut applied: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
+                // Same launch-safety contract as the automation watcher: a game
+                // that was ALREADY running before Nexus started is not a "detected
+                // launch" and must not auto-apply (which would write RGB). The
+                // first pass seeds the baseline from currently-running games; only
+                // a not-running→running transition we actually observe applies.
+                // Re-armed whenever the rule set goes empty→non-empty.
+                let mut primed = false;
                 loop {
                     std::thread::sleep(Duration::from_secs(5));
                     let svc = game_handle.state::<ControlService>();
                     let rules = svc.game_auto_apply_rules();
                     if rules.is_empty() {
                         applied.clear();
+                        primed = false;
                         continue;
                     }
                     let running = telemetry::processes::running_process_names();
+                    if !primed {
+                        for (game_id, proc) in &rules {
+                            if running.contains(proc) {
+                                applied.insert(game_id.clone());
+                            }
+                        }
+                        primed = true;
+                        logging::line(
+                            "INFO",
+                            "Game watcher primed — already-running games baselined, 0 writes on startup",
+                        );
+                        continue;
+                    }
                     for (game_id, proc) in rules {
                         let is_running = running.contains(&proc);
                         if is_running && !applied.contains(&game_id) {
-                            let _ = svc.apply_game_profile(&game_id);
+                            let _ = svc
+                                .apply_game_profile(&game_id, control::rgb::RgbSource::Automation);
                             logging::line(
                                 "INFO",
                                 &format!(

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { isTauri, getIntelligence } from "@/lib/ipc";
 import type {
   IntelligenceReport,
@@ -6,7 +6,11 @@ import type {
   Subsystem,
 } from "@/lib/intelligence-types";
 import type { HistoryPoint, Snapshot } from "@/lib/telemetry-types";
-import { useCpu, useSnapshot, useHistory } from "@/hooks/use-telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
+import {
+  useIntelligenceStore,
+  useIntelligenceReport,
+} from "@/store/intelligence-store";
 
 /* ---- Demo builder (mirrors the Rust scoring; browser-only fallback) ---- */
 
@@ -83,42 +87,43 @@ function buildDemo(snap: Snapshot | null, history: HistoryPoint[]): Intelligence
   };
 }
 
-export function useIntelligence() {
-  const cpu = useCpu();
-  const snapshot = useSnapshot();
-  const history = useHistory();
-  const cpuRef = useRef<number | undefined>(undefined);
-  cpuRef.current = cpu?.usage;
-
-  const [report, setReport] = useState<IntelligenceReport | null>(null);
-
+/**
+ * The single, global intelligence poller. Mounted exactly once (AppProviders),
+ * it recomputes the report on ONE cadence and publishes it to the intelligence
+ * store. Telemetry is read via `getState()` inside the interval, so there are no
+ * per-tick subscriptions and the report regenerates only on its own poll — not
+ * on every 1.5s telemetry frame. Consumers read slices from the store.
+ */
+export function useIntelligencePoller() {
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    const setReport = useIntelligenceStore.getState().setReport;
+    const buildFromStore = () => {
+      const { snapshot, history } = useTelemetryStore.getState();
+      return buildDemo(snapshot, history);
+    };
     async function tick() {
       try {
-        const r = await getIntelligence(cpuRef.current);
+        const cpu = useTelemetryStore.getState().snapshot?.cpu.usage;
+        const r = await getIntelligence(cpu);
         if (!cancelled) setReport(r);
       } catch {
-        if (!cancelled) setReport(buildDemo(snapshot, history));
+        if (!cancelled) setReport(buildFromStore());
       }
     }
     if (isTauri()) {
       tick();
       timer = window.setInterval(tick, 4000);
     } else {
-      setReport(buildDemo(snapshot, history));
-      timer = window.setInterval(() => setReport(buildDemo(snapshot, history)), 2500);
+      setReport(buildFromStore());
+      timer = window.setInterval(() => setReport(buildFromStore()), 2500);
     }
     return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+}
 
-  // Keep demo trends fresh as history grows (browser only).
-  useEffect(() => {
-    if (!isTauri()) setReport((r) => (r ? buildDemo(snapshot, history) : r));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history.length]);
-
-  return { report };
+/** Back-compat accessor — the full report, sourced from the shared store. */
+export function useIntelligence() {
+  return { report: useIntelligenceReport() };
 }

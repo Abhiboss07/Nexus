@@ -130,8 +130,79 @@ struct ToolSpec<'a> {
     doc_url: &'a str,
 }
 
-fn tool(spec: ToolSpec, flatpaks: &HashSet<String>) -> Integration {
+/// Everything a single detection pass needs, built once. A tool is "installed"
+/// if ANY signal fires — never relying on one source (which is why a GUI/AppImage
+/// install that isn't on `$PATH` used to show as missing).
+struct DetectCtx {
+    flatpaks: HashSet<String>,
+    /// Lowercased `.desktop` basenames across system + user + flatpak exports.
+    desktops: HashSet<String>,
+    /// Lowercased installed package names (pacman; empty on non-Arch).
+    packages: HashSet<String>,
+}
+
+/// Lowercased basenames (sans `.desktop`) of every installed desktop entry —
+/// catches GUI/AppImage/manual installs that put no binary on `$PATH`.
+fn desktop_files() -> HashSet<String> {
+    let h = home();
+    let dirs = [
+        "/usr/share/applications".to_string(),
+        "/usr/local/share/applications".to_string(),
+        "/var/lib/flatpak/exports/share/applications".to_string(),
+        format!("{h}/.local/share/applications"),
+        format!("{h}/.local/share/flatpak/exports/share/applications"),
+    ];
+    let mut set = HashSet::new();
+    for d in dirs {
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if let Some(base) = name.strip_suffix(".desktop") {
+                    set.insert(base.to_lowercase());
+                }
+            }
+        }
+    }
+    set
+}
+
+/// All installed pacman package names (one subprocess; empty on non-Arch).
+fn pacman_packages() -> HashSet<String> {
+    let mut set = HashSet::new();
+    if which("pacman").is_some() {
+        if let Ok(out) = std::process::Command::new("pacman").arg("-Qq").output() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let p = line.trim();
+                if !p.is_empty() {
+                    set.insert(p.to_lowercase());
+                }
+            }
+        }
+    }
+    set
+}
+
+/// Desktop-entry / package name candidates derived from a tool's ids.
+fn name_candidates(spec: &ToolSpec) -> Vec<String> {
+    let mut v: Vec<String> = spec.bins.iter().map(|b| b.to_lowercase()).collect();
+    if let Some(f) = spec.flatpak_id {
+        v.push(f.to_lowercase());
+        if let Some(seg) = f.rsplit('.').next() {
+            v.push(seg.to_lowercase());
+        }
+    }
+    v
+}
+
+fn tool(spec: ToolSpec, ctx: &DetectCtx) -> Integration {
     let fid = spec.flatpak_id.unwrap_or("");
+    let mk = |detail: String| {
+        entry(
+            spec.id, spec.name, spec.category, true, detail, spec.hint, spec.doc_url, fid,
+        )
+    };
+
+    // 1. Executable on PATH (most authoritative — gives a version string).
     let bin = spec
         .bins
         .iter()
@@ -141,35 +212,28 @@ fn tool(spec: ToolSpec, flatpaks: &HashSet<String>) -> Integration {
             .ver
             .and_then(|(vbin, vargs)| version(vbin, vargs))
             .unwrap_or_else(|| path.clone());
-        let detail = if detail == path {
+        return mk(if detail == path {
             format!("{b} · {path}")
         } else {
             detail
-        };
-        return entry(
-            spec.id,
-            spec.name,
-            spec.category,
-            true,
-            detail,
-            spec.hint,
-            spec.doc_url,
-            fid,
-        );
+        });
     }
+    // 2. Flatpak app installed.
     if let Some(f) = spec.flatpak_id {
-        if flatpaks.contains(f) {
-            return entry(
-                spec.id,
-                spec.name,
-                spec.category,
-                true,
-                format!("flatpak · {f}"),
-                spec.hint,
-                spec.doc_url,
-                fid,
-            );
+        if ctx.flatpaks.contains(f) {
+            return mk(format!("flatpak · {f}"));
         }
+    }
+    // 3. Installed package (binary name usually == package, e.g. openrgb).
+    if let Some(pkg) = name_candidates(&spec)
+        .into_iter()
+        .find(|c| ctx.packages.contains(c))
+    {
+        return mk(format!("package · {pkg}"));
+    }
+    // 4. Desktop entry present (GUI / AppImage / manual install, not on PATH).
+    if name_candidates(&spec).iter().any(|c| ctx.desktops.contains(c)) {
+        return mk("installed".into());
     }
     entry(
         spec.id,
@@ -184,7 +248,12 @@ fn tool(spec: ToolSpec, flatpaks: &HashSet<String>) -> Integration {
 }
 
 pub fn detect_all() -> Vec<Integration> {
-    let fp = flatpak_apps();
+    let ctx = DetectCtx {
+        flatpaks: flatpak_apps(),
+        desktops: desktop_files(),
+        packages: pacman_packages(),
+    };
+    let fp = &ctx.flatpaks; // used by the bespoke (non-macro) entries below
     let mut out = Vec::new();
     macro_rules! t {
         ($id:expr, $name:expr, $cat:expr, $bins:expr, $ver:expr, $fpid:expr, $hint:expr, $doc:expr) => {
@@ -199,7 +268,7 @@ pub fn detect_all() -> Vec<Integration> {
                     hint: $hint,
                     doc_url: $doc,
                 },
-                &fp,
+                &ctx,
             ))
         };
     }
@@ -593,15 +662,138 @@ pub fn detect_all() -> Vec<Integration> {
 /// Returns the install log on success. Non-flatpak tools return an error telling
 /// the caller to use the provided package-manager command instead — Nexus never
 /// silently runs `sudo`.
-pub fn install_integration(flatpak_id: &str) -> Result<String, String> {
+/// Flatpak readiness, surfaced to the UI so it can show a "Add Flathub" prompt
+/// instead of letting an install fail with a raw "No remote refs" error.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlatpakHealth {
+    pub flatpak_installed: bool,
+    pub flathub_remote: bool,
+}
+
+pub fn flatpak_health() -> FlatpakHealth {
+    let installed = which("flatpak").is_some();
+    FlatpakHealth {
+        flatpak_installed: installed,
+        flathub_remote: installed && flathub_remote_present(),
+    }
+}
+
+/// Is a user-scoped `flathub` remote configured? We check (and add) at *user*
+/// scope so `flatpak install --user` always has a matching remote — a
+/// system-only flathub remote can't satisfy a `--user` install.
+fn flathub_remote_present() -> bool {
+    std::process::Command::new("flatpak")
+        .args(["remotes", "--user", "--columns=name"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.trim() == "flathub")
+        })
+        .unwrap_or(false)
+}
+
+/// Add the Flathub remote (user-scoped, idempotent). This is the one-click fix
+/// for the most common failure on a fresh machine: Flatpak installed but no
+/// remotes configured.
+fn ensure_flathub() -> Result<(), String> {
+    if flathub_remote_present() {
+        return Ok(());
+    }
+    let out = std::process::Command::new("flatpak")
+        .args([
+            "remote-add",
+            "--if-not-exists",
+            "--user",
+            "flathub",
+            "https://flathub.org/repo/flathub.flatpakrepo",
+        ])
+        .output()
+        .map_err(|e| format!("Couldn't run flatpak: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(humanize_flatpak_error(&String::from_utf8_lossy(&out.stderr)))
+    }
+}
+
+/// Public "Add Flathub" entrypoint for the UI banner.
+pub fn add_flathub() -> Result<String, String> {
+    if which("flatpak").is_none() {
+        return Err("Flatpak isn't installed yet. Install it first: sudo pacman -S flatpak".into());
+    }
+    ensure_flathub()?;
+    Ok("Flathub repository added — you can install apps now.".into())
+}
+
+/// Does the app id actually exist on the flathub remote? Lets us fail with a
+/// clear "not available" message instead of a cryptic remote error.
+fn package_available(flatpak_id: &str) -> bool {
+    std::process::Command::new("flatpak")
+        .args(["remote-info", "--user", "flathub", flatpak_id])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Turn raw flatpak stderr into a single human-readable sentence. End users must
+/// never see a package-manager stack trace.
+fn humanize_flatpak_error(stderr: &str) -> String {
+    let s = stderr.to_lowercase();
+    if s.contains("no remote refs found") || s.contains("not found in remote") {
+        "This app isn't available on Flathub (or the Flathub remote isn't set up).".into()
+    } else if s.contains("already installed") {
+        "It's already installed.".into()
+    } else if s.contains("permission denied") || s.contains("polkit") || s.contains("not authorized")
+    {
+        "Permission was denied while installing.".into()
+    } else if s.contains("could not resolve")
+        || s.contains("failed to connect")
+        || s.contains("temporary failure")
+        || s.contains("network is unreachable")
+        || s.contains("timed out")
+    {
+        "Couldn't reach Flathub — check your internet connection and try again.".into()
+    } else if s.contains("no space left") {
+        "There isn't enough disk space to install this app.".into()
+    } else {
+        let first = stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("Installation failed.");
+        format!(
+            "Installation failed: {}",
+            first.chars().take(160).collect::<String>()
+        )
+    }
+}
+
+/// Phase 1 — make sure we *can* install: flatpak present, Flathub remote set up
+/// (self-healed), and the app actually exists on the remote.
+pub fn ensure_ready(flatpak_id: &str) -> Result<(), String> {
     if flatpak_id.is_empty() {
         return Err(
             "This tool has no one-click installer — use the package-manager command shown.".into(),
         );
     }
     if which("flatpak").is_none() {
-        return Err("Flatpak is not installed. Install it first: sudo pacman -S flatpak".into());
+        return Err("Flatpak isn't installed yet. Install it first: sudo pacman -S flatpak".into());
     }
+    // Self-heal the remote — a fresh Flatpak has none, which is what produced
+    // the raw "No remote refs found for 'flathub'" error.
+    ensure_flathub()?;
+    if !package_available(flatpak_id) {
+        return Err(format!(
+            "{flatpak_id} isn't available on Flathub right now — it may have been renamed or removed."
+        ));
+    }
+    Ok(())
+}
+
+/// Phase 2 — the actual (slow) install.
+pub fn run_install(flatpak_id: &str) -> Result<(), String> {
     let out = std::process::Command::new("flatpak")
         .args([
             "install",
@@ -612,10 +804,26 @@ pub fn install_integration(flatpak_id: &str) -> Result<String, String> {
             flatpak_id,
         ])
         .output()
-        .map_err(|e| format!("Failed to launch flatpak: {e}"))?;
+        .map_err(|e| format!("Couldn't launch flatpak: {e}"))?;
     if out.status.success() {
-        Ok(format!("Installed {flatpak_id} via Flatpak."))
+        Ok(())
     } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        Err(humanize_flatpak_error(&String::from_utf8_lossy(&out.stderr)))
     }
 }
+
+/// The installed version of a (user-scoped) flatpak app, for the "Installed ✓ v…"
+/// confirmation. None if not installed / unparseable.
+pub fn installed_flatpak_version(flatpak_id: &str) -> Option<String> {
+    let out = std::process::Command::new("flatpak")
+        .args(["info", "--user", flatpak_id])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Version:").map(|v| v.trim().to_string()))
+}
+

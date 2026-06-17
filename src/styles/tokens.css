@@ -58,10 +58,14 @@
   --topbar-height: 60px;
   --grid-size: 44px;
 
-  /* ----- Glass engine ----- */
-  --glass-blur: 18px;
-  --glass-blur-strong: 32px;
-  --glass-saturate: 160%;
+  /* ----- Glass engine -----
+     backdrop-filter cost scales with the blur kernel, and the dashboard stacks
+     ~10 glass surfaces that each re-sample the scrolling content behind them
+     every frame. These radii are tuned for smooth 144Hz scroll / 60fps on
+     battery while keeping the frosted look (was 18 / 32 / 160%). */
+  --glass-blur: 12px;
+  --glass-blur-strong: 22px;
+  --glass-saturate: 140%;
   --glass-noise-opacity: 0.025;
 
   /* z-index ladder */

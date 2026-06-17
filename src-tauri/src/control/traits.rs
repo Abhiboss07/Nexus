@@ -83,7 +83,7 @@ pub type ControlResult = Result<ControlOutcome, ControlError>;
 /* Request payloads (deserialized from the UI; validated, never vendor-aware) */
 /* ------------------------------------------------------------------------- */
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RgbRequest {
     pub effect: String,

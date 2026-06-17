@@ -105,7 +105,15 @@ export default function RgbStudioPage() {
   const isKeyboard = device === "keyboard";
 
   const debounce = useRef<number | undefined>(undefined);
-  const firstRun = useRef(true);
+  // True only after a genuine user gesture has changed an RGB control. Gates the
+  // auto-apply effect so NOTHING is written on mount, on re-mount (React
+  // StrictMode double-invokes effects in dev), on navigation back to this page,
+  // or when telemetry/capabilities hydrate after mount. Flipped exclusively by
+  // `touch()` inside user-event handlers — never by render, effect, or store
+  // hydration. This is the frontend half of the "no unsolicited [RGB WRITE]"
+  // guarantee (the backend also skips writes when values are unchanged).
+  const interacted = useRef(false);
+  const touch = useCallback(() => { interacted.current = true; }, []);
 
   /** Push the current settings to the hardware (debounced, live only). */
   const apply = useCallback(async () => {
@@ -132,18 +140,14 @@ export default function RgbStudioPage() {
   const applyRef = useRef(apply);
   useEffect(() => { applyRef.current = apply; }, [apply]);
 
-  // Debounced auto-apply — fires ONLY when a control *value* changes, which only
-  // happens through a user gesture (slider, effect, preset, power, import). It is
-  // deliberately NOT keyed on `apply`/`live`/`source`/`rgbCap`: those change as
-  // telemetry & capabilities hydrate after mount and on every poll tick, and
-  // keying on them caused unsolicited RGB writes at startup (issue: "RGB changes
-  // on launch"). `firstRun` additionally suppresses the initial mount, so startup
-  // is strictly read-only — no [RGB WRITE] happens without explicit user input.
+  // Debounced auto-apply. Guarded by `interacted` so it is a strict no-op until
+  // the user actually touches an RGB control: mount, StrictMode re-mount,
+  // navigation, and telemetry/capability hydration all run this effect but bail
+  // at the guard, so startup is read-only — no [RGB WRITE] without user input.
+  // Deliberately NOT keyed on `apply`/`live`/`source`/`rgbCap` (they churn as
+  // telemetry hydrates and on every poll tick); only on the control values.
   useEffect(() => {
-    if (firstRun.current) {
-      firstRun.current = false;
-      return;
-    }
+    if (!interacted.current) return;
     if (!isKeyboard) return;
     window.clearTimeout(debounce.current);
     debounce.current = window.setTimeout(() => applyRef.current(), 250);
@@ -178,6 +182,7 @@ export default function RgbStudioPage() {
     if (!json) return;
     try {
       const p = JSON.parse(json);
+      touch();
       setEffect(p.effect);
       setHue(p.hue);
       setBrightness(p.brightness);
@@ -190,6 +195,7 @@ export default function RgbStudioPage() {
   }
 
   function applyPreset(p: (typeof PRESETS)[number]) {
+    touch();
     setEffect(p.effect);
     setHue(p.hue);
     setSpeed(p.speed);
@@ -253,7 +259,7 @@ export default function RgbStudioPage() {
               action={
                 <div className="flex items-center gap-sm">
                   <span className="text-xs text-content-muted">Power</span>
-                  <Switch checked={power} onCheckedChange={setPower} />
+                  <Switch checked={power} onCheckedChange={(v) => { touch(); setPower(v); }} />
                 </div>
               }
             />
@@ -293,7 +299,7 @@ export default function RgbStudioPage() {
                 return (
                   <button
                     key={e}
-                    onClick={() => setEffect(e)}
+                    onClick={() => { touch(); setEffect(e); }}
                     className={cn(
                       "flex items-center gap-sm rounded-lg border p-md text-left capitalize transition-all",
                       effect === e ? "border-accent/50 bg-accent/8" : "border-border hover:border-border-strong",
@@ -319,7 +325,7 @@ export default function RgbStudioPage() {
                 className="mb-md h-20 rounded-lg ring-1 ring-inset ring-white/10"
                 style={{ background: `linear-gradient(120deg, hsl(${hue} 90% 55%), hsl(${(hue + 40) % 360} 90% 50%))` }}
               />
-              <HuePicker hue={hue} onChange={setHue} />
+              <HuePicker hue={hue} onChange={(v) => { touch(); setHue(v); }} />
               <p className="mt-sm flex items-center justify-between text-xs text-content-muted">
                 <span>Hue</span>
                 <span className="font-mono tabular-nums text-content">{hue}°</span>
@@ -328,8 +334,8 @@ export default function RgbStudioPage() {
 
             <GlassCard padding="lg">
               <SectionTitle title="Parameters" />
-              <SliderRow label="Brightness" value={brightness} unit="%" onValueChange={setBrightness} />
-              <SliderRow label="Speed" value={speed} unit="%" onValueChange={setSpeed} />
+              <SliderRow label="Brightness" value={brightness} unit="%" onValueChange={(v) => { touch(); setBrightness(v); }} />
+              <SliderRow label="Speed" value={speed} unit="%" onValueChange={(v) => { touch(); setSpeed(v); }} />
               <label className="mt-sm flex items-center justify-between border-t border-border-subtle pt-md">
                 <span className="text-sm font-medium text-content">Sync all devices</span>
                 <Switch checked={sync} onCheckedChange={setSync} />
@@ -352,7 +358,7 @@ export default function RgbStudioPage() {
               </div>
             </GlassCard>
 
-            <Button variant="glass" size="lg" className="w-full" onClick={() => setPower((p) => !p)}>
+            <Button variant="glass" size="lg" className="w-full" onClick={() => { touch(); setPower((p) => !p); }}>
               <Power className="h-4 w-4" /> {power ? "Turn Off Lighting" : "Turn On Lighting"}
             </Button>
           </CapabilityGate>

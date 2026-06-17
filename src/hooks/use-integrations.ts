@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
-import { isTauri, getIntegrations, installIntegration } from "@/lib/ipc";
-import type { Integration } from "@/lib/integrations-types";
+import {
+  isTauri,
+  getIntegrations,
+  installIntegration,
+  flatpakHealth,
+  addFlathub as ipcAddFlathub,
+} from "@/lib/ipc";
+import type { Integration, FlatpakHealth } from "@/lib/integrations-types";
 
 const d = (
   id: string,
@@ -39,26 +45,33 @@ const DEMO: Integration[] = [
   d("display-server", "Display Server", "system", true, "Wayland (XWayland available)", "", ""),
 ];
 
+const DEMO_HEALTH: FlatpakHealth = { flatpakInstalled: true, flathubRemote: true };
+
 export function useIntegrations() {
   const [items, setItems] = useState<Integration[]>([]);
+  const [health, setHealth] = useState<FlatpakHealth>(DEMO_HEALTH);
   const [loading, setLoading] = useState(true);
 
   function load() {
     setLoading(true);
     if (isTauri()) {
+      flatpakHealth().then(setHealth).catch(() => setHealth(DEMO_HEALTH));
       getIntegrations()
         .then(setItems)
         .catch(() => setItems(DEMO))
         .finally(() => setLoading(false));
     } else {
       setItems(DEMO);
+      setHealth(DEMO_HEALTH);
       setLoading(false);
     }
   }
 
   useEffect(load, []);
 
-  /** One-click flatpak install (Tauri only); returns a status message. */
+  /** One-click flatpak install (Tauri only); returns a status message. The
+   *  backend self-heals the Flathub remote and verifies the app first, so this
+   *  surfaces only human-readable messages. */
   async function install(item: Integration): Promise<string> {
     if (!item.flatpakId) throw new Error("No one-click installer for this tool.");
     if (!isTauri()) return `Demo — would install ${item.name} via Flatpak.`;
@@ -67,5 +80,16 @@ export function useIntegrations() {
     return msg;
   }
 
-  return { items, loading, refresh: load, install };
+  /** One-click "Add Flathub"; refreshes health + detection afterward. */
+  async function addFlathub(): Promise<string> {
+    if (!isTauri()) {
+      setHealth({ flatpakInstalled: true, flathubRemote: true });
+      return "Demo — would add the Flathub repository.";
+    }
+    const msg = await ipcAddFlathub();
+    load();
+    return msg;
+  }
+
+  return { items, health, loading, refresh: load, install, addFlathub };
 }

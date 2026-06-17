@@ -15,5 +15,5 @@ pub mod omen;
 pub mod openrgb;
 pub mod profiles;
 
-pub use engine::RgbEngine;
+pub use engine::{RgbEngine, RgbSource};
 pub use profiles::RgbProfile;

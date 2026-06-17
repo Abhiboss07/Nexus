@@ -107,7 +107,7 @@ export default function BatteryPage() {
         <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
           <motion.div variants={fadeUp} className="lg:col-span-2">
             <GlassCard padding="lg" className="relative h-full overflow-hidden">
-              <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-success/15 blur-3xl" />
+              <div className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full" style={{ background: "radial-gradient(closest-side, rgb(var(--color-success) / 0.18), transparent)" }} />
               <div className="flex flex-col gap-lg sm:flex-row sm:items-center">
                 <BatteryGlyph level={charge} charging={charging} />
                 <div className="flex-1">

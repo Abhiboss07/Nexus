@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Stethoscope,
@@ -42,6 +42,7 @@ import {
 import type { HealthCheck, Permissions } from "@/lib/system-types";
 import type { ScanCategory, Severity, SystemScan, FileEntry } from "@/lib/sysdoctor-types";
 import { formatBytes } from "@/lib/format";
+import { useRenderCount } from "@/components/dev/render-count";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
@@ -163,7 +164,7 @@ export default function DoctorPage() {
       <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
         {/* Health score */}
         <GlassCard padding="lg" className="relative flex flex-col items-center justify-center overflow-hidden text-center">
-          <div className="absolute -top-12 h-40 w-40 rounded-full bg-accent/15 blur-3xl" />
+          <div className="pointer-events-none absolute -top-12 h-40 w-40 rounded-full" style={{ background: "radial-gradient(closest-side, rgb(var(--color-accent) / 0.18), transparent)" }} />
           <RingGauge value={phase === "scanning" ? 0 : score} size={180} thickness={14} tone={tone} label={phase === "scanning" ? "…" : `${score}`} sublabel={phase === "scanning" ? "Scanning" : "Health"} />
           <p className="mt-md text-sm text-content-muted">
             {phase === "scanning" ? "Running deep diagnostics…" : scan ? `${scan.categories.length} categories scanned` : health ? `${health.passed} of ${health.total} checks passed` : ""}
@@ -242,7 +243,8 @@ export default function DoctorPage() {
   );
 }
 
-function CategoryCard({ cat }: { cat: ScanCategory }) {
+const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) {
+  useRenderCount("DoctorCard");
   const [open, setOpen] = useState(cat.status === "critical" || cat.status === "warning");
   const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null);
@@ -332,7 +334,7 @@ function CategoryCard({ cat }: { cat: ScanCategory }) {
       </AnimatePresence>
     </GlassCard>
   );
-}
+});
 
 function FAction({ icon: Icon, label, onClick, busy }: { icon: LucideIcon; label: string; onClick: () => void; busy?: boolean }) {
   return (

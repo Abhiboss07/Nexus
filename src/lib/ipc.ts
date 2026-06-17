@@ -45,7 +45,11 @@ import type {
   MangoHudStatus,
   ManualGame,
 } from "./games-types";
-import type { Integration } from "./integrations-types";
+import type {
+  Integration,
+  FlatpakHealth,
+  InstallProgress,
+} from "./integrations-types";
 import type { CommandResult, IntelligenceReport } from "./intelligence-types";
 import type {
   CompatibilityReport,
@@ -250,6 +254,10 @@ export const getIntegrations = () => invoke<Integration[]>("get_integrations");
 /** One-click flatpak install (user-level). Returns the install log. */
 export const installIntegration = (flatpakId: string) =>
   invoke<string>("install_integration", { flatpakId });
+/** Is flatpak installed and is the Flathub remote configured? */
+export const flatpakHealth = () => invoke<FlatpakHealth>("flatpak_health");
+/** One-click "Add Flathub" (user-scoped, idempotent). */
+export const addFlathub = () => invoke<string>("add_flathub");
 
 /* ----- System Doctor: deep scan + storage analyzer ----- */
 
@@ -341,4 +349,13 @@ export async function onTelemetry(
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<Snapshot>(TELEMETRY_EVENT, (e) => handler(e.payload));
+}
+
+/** Subscribe to install-progress events. Returns an unlisten function. */
+export async function onIntegrationProgress(
+  handler: (p: InstallProgress) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<InstallProgress>("integration-progress", (e) => handler(e.payload));
 }

@@ -185,7 +185,41 @@ fn scan_hardware(control: &ControlService) -> ScanCategory {
     } else {
         f("info", "Battery", "No battery (desktop)", "")
     });
+    if let Some(fw) = scan_firmware() {
+        out.push(fw);
+    }
     ScanCategory::new("hardware", "Hardware", out)
+}
+
+/// Kernel complaints about the laptop's firmware — "ACPI BIOS Error", "firmware
+/// bug", etc. These are emitted *by* the kernel *about* the OEM firmware (very
+/// common on HP/OMEN units) and are almost always cosmetic. They belong as a
+/// clearly-labelled firmware *warning*, never a "critical" system failure.
+fn scan_firmware() -> Option<Finding> {
+    if !has("journalctl") {
+        return None;
+    }
+    let log = run("journalctl", &["-k", "-b", "-p", "4", "--no-pager", "-q"])?;
+    let n = log
+        .lines()
+        .filter(|l| {
+            let l = l.to_lowercase();
+            l.contains("acpi bios error")
+                || l.contains("acpi error")
+                || l.contains("firmware bug")
+        })
+        .count();
+    if n == 0 {
+        return None;
+    }
+    Some(f(
+        "warning",
+        "Firmware (ACPI/BIOS)",
+        format!(
+            "{n} ACPI/firmware complaint(s) from the kernel this boot — cosmetic on most laptops; a BIOS update may clear them"
+        ),
+        "",
+    ))
 }
 
 fn scan_storage_health() -> ScanCategory {
@@ -445,10 +479,23 @@ fn scan_failed(user: bool, out: &mut Vec<Finding>) {
     }
     for unit in units {
         let (cause, dup) = unit_cause(&unit, user);
-        // Duplicate-instance / restart-loop is a warning, not a hard failure.
-        let sev = if dup { "warning" } else { "critical" };
+        // Severity policy: reserve "critical" for failures that actually break
+        // the system — a filesystem/mount that won't come up (disk/boot). A
+        // crashed background service, a user-session app, or a restart loop is a
+        // "warning": worth surfacing with Logs/Restart actions, but not a
+        // system-down event. (Previously every non-restart-loop failure was
+        // flagged critical, which made the Doctor cry wolf — a single user-app
+        // crash turned the whole Services category red while the summary still
+        // read "No failed system units".)
+        let sev = if !user && unit.ends_with(".mount") {
+            "critical"
+        } else {
+            "warning"
+        };
         let title = if dup {
             format!("{unit} (restart loop)")
+        } else if user {
+            format!("{unit} (application error)")
         } else {
             unit.clone()
         };
@@ -745,7 +792,7 @@ fn scan_maintenance() -> ScanCategory {
         if let Some(c) = run("coredumpctl", &["--no-pager", "list", "--reverse"]) {
             let groups = group_coredumps(&c);
             if groups.is_empty() {
-                out.push(f("ok", "Crash logs", "No recorded coredumps", ""));
+                out.push(f("ok", "Application crashes", "No recorded coredumps", ""));
             } else {
                 let total: usize = groups.iter().map(|(_, n)| n).sum();
                 let list = groups
@@ -757,7 +804,7 @@ fn scan_maintenance() -> ScanCategory {
                 out.push(
                     f(
                         "warning",
-                        "Crash logs",
+                        "Application crashes",
                         format!("{total} coredump(s): {list}"),
                         "coredumpctl info <pid>",
                     )
@@ -787,13 +834,28 @@ fn scan_maintenance() -> ScanCategory {
                 .kind("package")
             });
         }
-        // Broken dependencies — name the affected packages + repair action.
-        if let Some(dk) = run("pacman", &["-Dk"]) {
-            let affected: Vec<String> = dk
+        // Broken dependencies — `pacman -Dk` exits 0 iff the local database is
+        // consistent, so the exit code is the source of truth. The stdout text
+        // is parsed only to *name* affected packages when it's non-zero. (Don't
+        // grep stdout for "error": the clean message is literally "No database
+        // errors have been found!", which contains the substring "errors" and
+        // used to be mis-flagged as a broken package.)
+        if let Ok(dk) = Command::new("pacman").args(["-Dk"]).output() {
+            if dk.status.success() {
+                out.push(f("ok", "Package dependencies", "Consistent", ""));
+            } else {
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&dk.stdout),
+                String::from_utf8_lossy(&dk.stderr)
+            );
+            let affected: Vec<String> = text
                 .lines()
                 .filter(|l| {
                     let l = l.to_lowercase();
-                    l.contains("missing") || l.contains("error") || l.contains("breaks dependency")
+                    l.contains("missing")
+                        || l.contains("unsatisfied")
+                        || l.contains("breaks dependency")
                 })
                 .filter_map(|l| {
                     l.split(':')
@@ -803,7 +865,14 @@ fn scan_maintenance() -> ScanCategory {
                 .filter(|s| !s.is_empty())
                 .collect();
             if affected.is_empty() {
-                out.push(f("ok", "Package dependencies", "Consistent", ""));
+                // Non-zero exit but no parseable package name — report a generic
+                // inconsistency rather than silently claiming OK.
+                out.push(f(
+                    "warning",
+                    "Broken packages",
+                    "Database reported dependency issues",
+                    "sudo pacman -Syu",
+                ).kind("package"));
             } else {
                 let preview = affected
                     .iter()
@@ -820,6 +889,7 @@ fn scan_maintenance() -> ScanCategory {
                     )
                     .kind("package"),
                 );
+            }
             }
         }
     }

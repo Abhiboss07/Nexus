@@ -1,6 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TelemetryProvider } from "@/providers/telemetry-provider";
+import { useIntelligencePoller } from "@/hooks/use-intelligence";
+
+/** Runs the single global intelligence poll; renders nothing. */
+function IntelligencePoller() {
+  useIntelligencePoller();
+  return null;
+}
 
 /**
  * Global providers. TanStack Query is the data layer; in Phase 2 its query
@@ -23,7 +30,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={client}>
-      <TelemetryProvider>{children}</TelemetryProvider>
+      <TelemetryProvider>
+        <IntelligencePoller />
+        {children}
+      </TelemetryProvider>
     </QueryClientProvider>
   );
 }

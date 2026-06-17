@@ -20,3 +20,24 @@ export interface Integration {
   /** Non-empty when the tool can be installed one-click via Flatpak. */
   flatpakId: string;
 }
+
+/** Flatpak readiness — drives the "Add Flathub" prompt and per-card states. */
+export interface FlatpakHealth {
+  flatpakInstalled: boolean;
+  flathubRemote: boolean;
+}
+
+/** Live install phases (real backend steps — emitted on `integration-progress`). */
+export type InstallPhase =
+  | "queued"
+  | "preparing"
+  | "installing"
+  | "verifying"
+  | "installed"
+  | "failed";
+
+export interface InstallProgress {
+  flatpakId: string;
+  phase: InstallPhase;
+  version: string | null;
+}

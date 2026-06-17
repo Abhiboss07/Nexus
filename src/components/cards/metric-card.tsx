@@ -1,6 +1,8 @@
+import { memo } from "react";
 import { type LucideIcon, TrendingDown, TrendingUp } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass";
 import { Sparkline } from "@/components/ui/sparkline";
+import { useRenderCount } from "@/components/dev/render-count";
 import { cn } from "@/lib/cn";
 
 export interface MetricCardProps {
@@ -22,8 +24,14 @@ const iconTint: Record<NonNullable<MetricCardProps["tone"]>, string> = {
   info: "text-info bg-info/12",
 };
 
-/** The workhorse telemetry card: icon, big value, trend, sparkline. */
-export function MetricCard({
+/**
+ * The workhorse telemetry card: icon, big value, trend, sparkline.
+ *
+ * Memoized so a parent re-render with unchanged props is a no-op. (On the live
+ * dashboard the value/series change every tick so it still re-renders there —
+ * by design — but it stays cheap everywhere props are stable.)
+ */
+export const MetricCard = memo(function MetricCard({
   icon: Icon,
   label,
   value,
@@ -33,6 +41,7 @@ export function MetricCard({
   tone = "accent",
   footer,
 }: MetricCardProps) {
+  useRenderCount("MetricCard");
   const trendUp = (trend ?? 0) >= 0;
   return (
     <GlassCard interactive glow padding="lg" className="flex flex-col gap-md">
@@ -73,4 +82,4 @@ export function MetricCard({
       {footer && <p className="text-xs text-content-subtle">{footer}</p>}
     </GlassCard>
   );
-}
+});

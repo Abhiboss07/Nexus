@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -41,11 +41,16 @@ import {
   useMemory,
   useBattery,
   useThermals,
-  useHistory,
+  useHistorySeries,
   useTelemetrySource,
 } from "@/hooks/use-telemetry";
-import { useIntelligence } from "@/hooks/use-intelligence";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
+import {
+  useHealthScore,
+  useHealthGrade,
+  useHealthSubsystems,
+} from "@/store/intelligence-store";
 import { useControlActions } from "@/hooks/use-control";
 import {
   isTauri,
@@ -59,7 +64,9 @@ import {
 } from "@/lib/ipc";
 import type { GpuInfo } from "@/lib/gpu-types";
 import type { LauncherStatus } from "@/lib/games-types";
+import type { BatteryReport } from "@/lib/battery-types";
 import type { Finding } from "@/lib/sysdoctor-types";
+import { useRenderCount } from "@/components/dev/render-count";
 import { cn } from "@/lib/cn";
 
 function trend(series: number[]): number {
@@ -69,54 +76,37 @@ function trend(series: number[]): number {
 }
 
 export default function DashboardPage() {
+  useRenderCount("DashboardPage");
   const navigate = useNavigate();
-  const cpu = useCpu();
-  const gpu = useGpu();
-  const mem = useMemory();
-  const battery = useBattery();
-  const thermals = useThermals();
-  const history = useHistory();
   const live = useTelemetrySource() === "live";
-  const { report } = useIntelligence();
-  const { report: bat, history: batHistory } = useBatteryIntel();
   const actions = useControlActions();
 
-  const cpuSeries = history.map((p) => p.cpuUsage);
-  const gpuSeries = history.map((p) => p.gpuUsage);
-  const memSeries = history.map((p) => p.memUsage);
-  const tempSeries = history.map((p) => p.cpuTemp);
-  const cpuTemp = thermals?.cpuC ?? cpu?.temperatureC ?? 0;
-
-  const health = report?.health;
-  const healthScore = health?.overallScore ?? 0;
-  const healthTone = healthScore >= 85 ? "success" : healthScore >= 60 ? "warning" : "danger";
-
+  // The page shell subscribes to NOTHING that changes at runtime beyond the
+  // (rare) telemetry-source flip: live telemetry lives in self-subscribing
+  // leaves (<LiveMetrics/>, <GpuCenter/>, …) and the intelligence/battery
+  // reports live in their own slice-subscribing sections (<HealthSection/>,
+  // <SystemStatusBadge/>, <BatterySection/>). So neither a 1.5s telemetry frame
+  // nor the few-second intelligence poll re-renders the dashboard tree — only
+  // the specific widget whose data actually changed. The page itself renders
+  // ~once and then stays idle.
   return (
     <div>
       <PageHeader
         title="Command Center"
         description="Welcome back — your system at a glance."
-        actions={
-          <Badge variant={healthTone === "success" ? "success" : "warning"} size="md">
-            <StatusDot tone={healthTone} pulse={false} />
-            {healthScore >= 85 ? "All systems nominal" : healthScore >= 60 ? "Attention advised" : "Action needed"}
-          </Badge>
-        }
+        actions={<SystemStatusBadge />}
       />
 
       <motion.div variants={stagger(0.05)} initial="hidden" animate="show" className="space-y-md">
-        {/* Live telemetry row */}
+        {/* Live telemetry row — isolated subscriptions (re-renders per tick here only) */}
         <motion.div variants={fadeUp} className="grid grid-cols-1 gap-md sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Cpu} label="CPU" value={cpu ? cpu.usage.toFixed(0) : "—"} unit="%" trend={trend(cpuSeries)} tone="accent" series={cpuSeries} footer={cpu ? `${cpu.model.split(" ").slice(0, 3).join(" ")} · ${(cpu.frequencyMhz / 1000).toFixed(1)} GHz` : "Detecting…"} />
-          <MetricCard icon={CircuitBoard} label="GPU" value={gpu ? gpu.usage.toFixed(0) : "—"} unit="%" trend={trend(gpuSeries)} tone="info" series={gpuSeries} footer={gpu ? `${gpu.name.replace("NVIDIA GeForce ", "")} · ${gpu.temperatureC?.toFixed(0) ?? "—"}°C` : "No GPU"} />
-          <MetricCard icon={MemoryStick} label="Memory" value={mem ? formatBytes(mem.usedBytes, 1).replace(" GB", "") : "—"} unit={mem ? `/ ${formatBytes(mem.totalBytes, 0)}` : ""} trend={trend(memSeries)} tone="success" series={memSeries} footer={mem ? `${mem.usage.toFixed(0)}% used` : "Detecting…"} />
-          <MetricCard icon={Thermometer} label="CPU Thermals" value={cpuTemp ? cpuTemp.toFixed(0) : "—"} unit="°C" trend={trend(tempSeries)} tone={cpuTemp > 80 ? "danger" : cpuTemp > 70 ? "warning" : "success"} series={tempSeries} footer="Package temperature" />
+          <LiveMetrics />
         </motion.div>
 
         {/* Health score (hero) + Quick actions */}
         <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
           <motion.div variants={fadeUp} className="lg:col-span-2">
-            <HealthHero score={healthScore} grade={health?.grade ?? "…"} tone={healthTone} subsystems={health?.subsystems ?? []} />
+            <HealthSection />
           </motion.div>
           <motion.div variants={fadeUp}>
             <QuickActions navigate={navigate} live={live} setPower={actions.setPower} />
@@ -126,25 +116,17 @@ export default function DashboardPage() {
         {/* GPU center + Gaming readiness */}
         <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
           <motion.div variants={fadeUp} className="lg:col-span-2">
-            <GpuCenter live={live} gpuTempSeries={history.map((p) => p.gpuTemp)} />
+            <GpuCenter live={live} />
           </motion.div>
           <motion.div variants={fadeUp}>
-            <GamingReadiness live={live} gpu={!!gpu} cpuTemp={cpuTemp} memUsage={mem?.usage ?? 0} />
+            <GamingReadiness live={live} />
           </motion.div>
         </div>
 
         {/* Battery intelligence + Alerts */}
         <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
           <motion.div variants={fadeUp}>
-            <BatteryIntel
-              wear={bat?.wearPercent}
-              cycles={bat?.cycleCount}
-              years={bat?.lifespan.yearsRemaining}
-              dischargeW={bat?.dischargeRateW ?? battery?.powerDrawW}
-              charging={battery?.status?.includes("harg") ?? false}
-              sessions={chargeSessions(batHistory.map((s) => s.status))}
-              percent={battery?.chargePercent}
-            />
+            <BatterySection />
           </motion.div>
           <motion.div variants={fadeUp} className="lg:col-span-2">
             <AlertsFeed navigate={navigate} live={live} />
@@ -160,11 +142,42 @@ export default function DashboardPage() {
   );
 }
 
+/* ------------------------------ Live metrics ----------------------------- */
+
+/**
+ * The four live telemetry cards, isolated from the page shell. This is the only
+ * dashboard subtree that subscribes to per-tick CPU/GPU/memory/thermal slices,
+ * so a 1.5s frame re-renders just these cards (whose displayed values genuinely
+ * change every tick) — never the surrounding widgets.
+ */
+const LiveMetrics = memo(function LiveMetrics() {
+  useRenderCount("LiveMetrics");
+  const cpu = useCpu();
+  const gpu = useGpu();
+  const mem = useMemory();
+  const thermals = useThermals();
+  const cpuSeries = useHistorySeries("cpuUsage");
+  const gpuSeries = useHistorySeries("gpuUsage");
+  const memSeries = useHistorySeries("memUsage");
+  const tempSeries = useHistorySeries("cpuTemp");
+  const cpuTemp = thermals?.cpuC ?? cpu?.temperatureC ?? 0;
+
+  return (
+    <>
+      <MetricCard icon={Cpu} label="CPU" value={cpu ? cpu.usage.toFixed(0) : "—"} unit="%" trend={trend(cpuSeries)} tone="accent" series={cpuSeries} footer={cpu ? `${cpu.model.split(" ").slice(0, 3).join(" ")} · ${(cpu.frequencyMhz / 1000).toFixed(1)} GHz` : "Detecting…"} />
+      <MetricCard icon={CircuitBoard} label="GPU" value={gpu ? gpu.usage.toFixed(0) : "—"} unit="%" trend={trend(gpuSeries)} tone="info" series={gpuSeries} footer={gpu ? `${gpu.name.replace("NVIDIA GeForce ", "")} · ${gpu.temperatureC?.toFixed(0) ?? "—"}°C` : "No GPU"} />
+      <MetricCard icon={MemoryStick} label="Memory" value={mem ? formatBytes(mem.usedBytes, 1).replace(" GB", "") : "—"} unit={mem ? `/ ${formatBytes(mem.totalBytes, 0)}` : ""} trend={trend(memSeries)} tone="success" series={memSeries} footer={mem ? `${mem.usage.toFixed(0)}% used` : "Detecting…"} />
+      <MetricCard icon={Thermometer} label="CPU Thermals" value={cpuTemp ? cpuTemp.toFixed(0) : "—"} unit="°C" trend={trend(tempSeries)} tone={cpuTemp > 80 ? "danger" : cpuTemp > 70 ? "warning" : "success"} series={tempSeries} footer="Package temperature" />
+    </>
+  );
+});
+
 /* -------------------------- Recommended actions -------------------------- */
 
 type Rec = { id: string; icon: LucideIcon; label: string; detail: string; run: () => Promise<string> };
 
-function RecommendedActions() {
+const RecommendedActions = memo(function RecommendedActions() {
+  useRenderCount("RecommendedActions");
   const [recs, setRecs] = useState<Rec[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, string>>({});
@@ -236,14 +249,40 @@ function RecommendedActions() {
       )}
     </GlassCard>
   );
-}
+});
 
 /* ----------------------------- Health hero ------------------------------- */
 
-function HealthHero({ score, grade, tone, subsystems }: { score: number; grade: string; tone: "success" | "warning" | "danger"; subsystems: { name: string; score: number; status: string; detail: string }[] }) {
+/** Header status pill — subscribes only to the health *score* (a primitive that
+ *  is stable across polls when unchanged), so it re-renders only when status
+ *  tier actually shifts, never the page. */
+const SystemStatusBadge = memo(function SystemStatusBadge() {
+  useRenderCount("SystemStatusBadge");
+  const score = useHealthScore();
+  const tone = score >= 85 ? "success" : score >= 60 ? "warning" : "danger";
+  return (
+    <Badge variant={tone === "success" ? "success" : "warning"} size="md">
+      <StatusDot tone={tone} pulse={false} />
+      {score >= 85 ? "All systems nominal" : score >= 60 ? "Attention advised" : "Action needed"}
+    </Badge>
+  );
+});
+
+/** Owns the intelligence-report subscription for the hero so the poll re-renders
+ *  this section only — not the dashboard shell. */
+const HealthSection = memo(function HealthSection() {
+  const score = useHealthScore();
+  const grade = useHealthGrade();
+  const subsystems = useHealthSubsystems();
+  const tone = score >= 85 ? "success" : score >= 60 ? "warning" : "danger";
+  return <HealthHero score={score} grade={grade} tone={tone} subsystems={subsystems} />;
+});
+
+const HealthHero = memo(function HealthHero({ score, grade, tone, subsystems }: { score: number; grade: string; tone: "success" | "warning" | "danger"; subsystems: { name: string; score: number; status: string; detail: string }[] }) {
+  useRenderCount("HealthHero");
   return (
     <GlassCard padding="lg" className="relative h-full overflow-hidden">
-      <div className={cn("absolute -right-10 -top-10 h-44 w-44 rounded-full blur-3xl", tone === "success" ? "bg-success/15" : tone === "warning" ? "bg-warning/15" : "bg-danger/15")} />
+      <div className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full" style={{ background: `radial-gradient(closest-side, rgb(var(--color-${tone}) / 0.18), transparent)` }} />
       <div className="flex flex-col gap-lg sm:flex-row sm:items-center">
         <div className="grid place-items-center text-center">
           <RingGauge value={score} size={150} thickness={12} tone={tone} label={`${score}`} sublabel="/ 100" />
@@ -265,11 +304,12 @@ function HealthHero({ score, grade, tone, subsystems }: { score: number; grade: 
       </div>
     </GlassCard>
   );
-}
+});
 
 /* ----------------------------- Quick actions ----------------------------- */
 
-function QuickActions({ navigate, live, setPower }: { navigate: (p: string) => void; live: boolean; setPower: (n: string) => Promise<{ ok: boolean; msg: string }> }) {
+const QuickActions = memo(function QuickActions({ navigate, live, setPower }: { navigate: (p: string) => void; live: boolean; setPower: (n: string) => Promise<{ ok: boolean; msg: string }> }) {
+  useRenderCount("QuickActions");
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 3000); return () => clearTimeout(t); }, [msg]);
 
@@ -305,12 +345,14 @@ function QuickActions({ navigate, live, setPower }: { navigate: (p: string) => v
       {msg && <p className="mt-sm truncate text-2xs text-content-muted">{msg}</p>}
     </GlassCard>
   );
-}
+});
 
 /* ------------------------------- GPU center ------------------------------ */
 
-function GpuCenter({ live, gpuTempSeries }: { live: boolean; gpuTempSeries: number[] }) {
+const GpuCenter = memo(function GpuCenter({ live }: { live: boolean }) {
+  useRenderCount("GpuCenter");
   const gpu = useGpu();
+  const gpuTempSeries = useHistorySeries("gpuTemp");
   const [info, setInfo] = useState<GpuInfo | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
@@ -372,24 +414,38 @@ function GpuCenter({ live, gpuTempSeries }: { live: boolean; gpuTempSeries: numb
       <div className="mt-sm"><Sparkline data={gpuTempSeries.length ? gpuTempSeries : [0, 0]} tone="info" height={32} /></div>
     </GlassCard>
   );
-}
+});
 
 /* --------------------------- Gaming readiness ---------------------------- */
 
-function GamingReadiness({ live, gpu, cpuTemp, memUsage }: { live: boolean; gpu: boolean; cpuTemp: number; memUsage: number }) {
+const GamingReadiness = memo(function GamingReadiness({ live }: { live: boolean }) {
+  useRenderCount("GamingReadiness");
   const [launchers, setLaunchers] = useState<LauncherStatus | null>(null);
   useEffect(() => {
     if (!isTauri()) { setLaunchers({ steam: true, lutris: true, heroic: false, gamemode: true, gamescope: false, mangohud: false, primeRun: true }); return; }
     getGameLaunchers().then(setLaunchers).catch(() => {});
   }, []);
 
+  // Subscribe to derived *booleans*, not raw telemetry: these selectors only
+  // change (and thus re-render this card) when a readiness check actually flips,
+  // not on every 1.5s frame.
+  const hasGpu = useTelemetryStore((s) => !!s.snapshot?.gpu);
+  const thermalsOk = useTelemetryStore((s) => {
+    const t = s.snapshot?.thermals?.cpuC ?? s.snapshot?.cpu?.temperatureC ?? 0;
+    return t > 0 && t < 80;
+  });
+  const memOk = useTelemetryStore((s) => {
+    const u = s.snapshot?.memory?.usage ?? 0;
+    return u > 0 && u < 80;
+  });
+
   const checks = [
-    { label: "GPU drivers", ok: gpu },
+    { label: "GPU drivers", ok: hasGpu },
     { label: "Steam", ok: !!launchers?.steam },
     { label: "GameMode", ok: !!launchers?.gamemode },
     { label: "MangoHud", ok: !!launchers?.mangohud },
-    { label: "Thermals headroom", ok: cpuTemp > 0 && cpuTemp < 80 },
-    { label: "Free memory", ok: memUsage > 0 && memUsage < 80 },
+    { label: "Thermals headroom", ok: thermalsOk },
+    { label: "Free memory", ok: memOk },
   ];
   const passed = checks.filter((c) => c.ok).length;
   const score = Math.round((passed / checks.length) * 100);
@@ -412,9 +468,16 @@ function GamingReadiness({ live, gpu, cpuTemp, memUsage }: { live: boolean; gpu:
       </div>
     </GlassCard>
   );
-}
+});
 
 /* -------------------------- Battery intelligence ------------------------- */
+
+/** Owns the one-shot battery-report load so it doesn't live on the page shell. */
+const BatterySection = memo(function BatterySection() {
+  const { report, history } = useBatteryIntel();
+  const sessions = chargeSessions(history.map((s) => s.status));
+  return <BatteryIntel report={report} sessions={sessions} />;
+});
 
 function chargeSessions(statuses: string[]): number {
   let sessions = 0;
@@ -427,7 +490,19 @@ function chargeSessions(statuses: string[]): number {
   return sessions;
 }
 
-function BatteryIntel({ wear, cycles, years, dischargeW, charging, sessions, percent }: { wear?: number; cycles?: number; years?: number; dischargeW?: number; charging: boolean; sessions: number; percent?: number }) {
+const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: BatteryReport | null; sessions: number }) {
+  useRenderCount("BatteryIntel");
+  // Live charge %/draw come from the per-tick snapshot (this card subscribes to
+  // it directly); the wear/cycle/lifespan figures come from the one-shot battery
+  // report passed in by the page.
+  const battery = useBattery();
+  const wear = report?.wearPercent;
+  const cycles = report?.cycleCount;
+  const years = report?.lifespan.yearsRemaining;
+  const dischargeW = report?.dischargeRateW ?? battery?.powerDrawW;
+  const charging = battery?.status?.includes("harg") ?? false;
+  const percent = battery?.chargePercent;
+
   if (wear == null && percent == null) {
     return <GlassCard padding="lg" className="grid h-full place-items-center text-center"><div><BatteryCharging className="mx-auto h-8 w-8 text-content-subtle" /><p className="mt-sm text-sm text-content-muted">No battery detected.</p></div></GlassCard>;
   }
@@ -455,7 +530,7 @@ function BatteryIntel({ wear, cycles, years, dischargeW, charging, sessions, per
       </div>
     </GlassCard>
   );
-}
+});
 
 /* ------------------------------- Alerts feed ----------------------------- */
 
@@ -466,7 +541,8 @@ const SEV_ICON: Record<string, { icon: LucideIcon; cls: string }> = {
   ok: { icon: CheckCircle2, cls: "text-success" },
 };
 
-function AlertsFeed({ navigate, live }: { navigate: (p: string) => void; live: boolean }) {
+const AlertsFeed = memo(function AlertsFeed({ navigate, live }: { navigate: (p: string) => void; live: boolean }) {
+  useRenderCount("AlertsFeed");
   const [alerts, setAlerts] = useState<Finding[] | null>(null);
 
   useEffect(() => {
@@ -517,4 +593,4 @@ function AlertsFeed({ navigate, live }: { navigate: (p: string) => void; live: b
       )}
     </GlassCard>
   );
-}
+});

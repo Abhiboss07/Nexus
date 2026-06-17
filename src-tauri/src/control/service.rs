@@ -26,7 +26,7 @@ use super::intelligence::{self, CommandResult, IntelligenceReport};
 use super::nexus::{NexusProfile, NexusProfileStore};
 use super::power::{PowerEngine, PowerInfo};
 use super::registry::{DriverInfo, DriverRegistry, VendorController};
-use super::rgb::{RgbEngine, RgbProfile};
+use super::rgb::{RgbEngine, RgbProfile, RgbSource};
 use super::traits::{ControlError, ControlOutcome, ControlResult, RgbRequest, RgbState};
 use crate::telemetry::hardware::HardwareProfile;
 use crate::telemetry::types::{HistoryPoint, Snapshot};
@@ -226,7 +226,7 @@ impl ControlService {
 
     /// Apply a game's profile (power + RGB + fan + launch optimizer) — used on
     /// launch / manually / by the auto-apply watcher.
-    pub fn apply_game_profile(&self, game_id: &str) -> ControlResult {
+    pub fn apply_game_profile(&self, game_id: &str, source: RgbSource) -> ControlResult {
         let profile = self.get_game_profile(game_id);
         let mut applied = false;
         let mut notes: Vec<String> = Vec::new();
@@ -258,7 +258,7 @@ impl ControlService {
                     speed: rgb.speed,
                     zone: None,
                 };
-                match self.rgb.apply(&req) {
+                match self.rgb.apply(&req, source) {
                     Ok(_) => {
                         applied = true;
                         notes.push(format!("RGB → {}", rgb.effect));
@@ -444,7 +444,7 @@ impl ControlService {
     /// Apply a Nexus profile: compose power + RGB. Tolerant of partial support —
     /// applies what it can and reports the rest, so e.g. power can switch even
     /// if RGB writes need the `input` group.
-    pub fn apply_nexus_profile(&self, id: &str) -> ControlResult {
+    pub fn apply_nexus_profile(&self, id: &str, source: RgbSource) -> ControlResult {
         let profile = self
             .nexus
             .get(id)
@@ -474,7 +474,7 @@ impl ControlService {
                     speed: rgb.speed,
                     zone: None,
                 };
-                match self.rgb.apply(&req) {
+                match self.rgb.apply(&req, source) {
                     Ok(_) => {
                         applied_any = true;
                         notes.push(format!("RGB → {}", rgb.effect));
@@ -538,19 +538,13 @@ impl ControlService {
 
     pub fn rgb_apply(&self, req: &RgbRequest) -> ControlResult {
         self.guard_rgb()?;
-        crate::logging::line(
-            "INFO",
-            &format!(
-                "[RGB WRITE] apply effect={} hue={} brightness={} speed={}",
-                req.effect, req.hue, req.brightness, req.speed
-            ),
-        );
-        self.rgb.apply(req)
+        // Reaching this IPC entry point always means an explicit user gesture
+        // (Apply / slider / effect / command bar). Logging happens in the engine.
+        self.rgb.apply(req, RgbSource::User)
     }
     pub fn rgb_off(&self) -> ControlResult {
         self.guard_rgb()?;
-        crate::logging::line("INFO", "[RGB WRITE] off");
-        self.rgb.off()
+        self.rgb.off(RgbSource::User)
     }
     pub fn rgb_state(&self) -> Option<RgbState> {
         crate::logging::line("INFO", "[RGB READ] state");
@@ -567,8 +561,7 @@ impl ControlService {
     }
     pub fn rgb_apply_profile(&self, name: &str) -> ControlResult {
         self.guard_rgb()?;
-        crate::logging::line("INFO", &format!("[RGB WRITE] apply_profile '{name}'"));
-        self.rgb.apply_profile(name)
+        self.rgb.apply_profile(name, RgbSource::Profile)
     }
     pub fn rgb_delete_profile(&self, name: &str) -> Result<(), ControlError> {
         self.rgb.delete_profile(name)
