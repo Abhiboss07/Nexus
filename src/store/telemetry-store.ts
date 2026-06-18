@@ -8,6 +8,9 @@ import type {
 import type { HardwareCapabilities } from "@/lib/capability-types";
 
 const HISTORY_CAP = 120;
+/** Default live poll cadence (ms). Settings can override; the provider slows it
+ *  further when the window is hidden. */
+export const DEFAULT_POLL_MS = 1500;
 
 interface TelemetryState {
   source: TelemetrySource;
@@ -15,11 +18,15 @@ interface TelemetryState {
   history: HistoryPoint[];
   profile: HardwareProfile | null;
   capabilities: HardwareCapabilities | null;
+  /** Desired foreground poll interval (ms). The provider restores to this when
+   *  the window regains focus. */
+  pollIntervalMs: number;
 
   setSource: (s: TelemetrySource) => void;
   setProfile: (p: HardwareProfile) => void;
   setCapabilities: (c: HardwareCapabilities) => void;
   setHistory: (h: HistoryPoint[]) => void;
+  setPollIntervalMs: (ms: number) => void;
   /** Ingest a frame: store it and append a derived history point. */
   ingest: (snapshot: Snapshot) => void;
 }
@@ -45,11 +52,13 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   history: [],
   profile: null,
   capabilities: null,
+  pollIntervalMs: DEFAULT_POLL_MS,
 
   setSource: (source) => set({ source }),
   setProfile: (profile) => set({ profile }),
   setCapabilities: (capabilities) => set({ capabilities }),
   setHistory: (history) => set({ history: history.slice(-HISTORY_CAP) }),
+  setPollIntervalMs: (pollIntervalMs) => set({ pollIntervalMs }),
   ingest: (snapshot) =>
     set((state) => {
       const history = [...state.history, toPoint(snapshot)];

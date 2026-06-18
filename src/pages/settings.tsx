@@ -34,6 +34,7 @@ import { StatRow } from "@/components/ui/section";
 import { THEMES } from "@/config/themes";
 import { BACKGROUNDS } from "@/config/backgrounds";
 import { useThemeStore } from "@/store/theme-store";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import {
   useCapabilities,
   useHardwareProfile,
@@ -239,10 +240,12 @@ function SystemPanel() {
 
 function PerformancePanel() {
   const { background, setBackground, reducedMotion, setReducedMotion } = useThemeStore();
-  const [intervalMs, setIntervalMs] = useState(1500);
+  const intervalMs = useTelemetryStore((s) => s.pollIntervalMs);
+  const setIntervalStore = useTelemetryStore((s) => s.setPollIntervalMs);
 
   function applyInterval(ms: number) {
-    setIntervalMs(ms);
+    // Store is the source of truth so the provider restores to it on focus.
+    setIntervalStore(ms);
     if (isTauri()) setPollInterval(ms).catch(() => {});
   }
 
