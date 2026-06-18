@@ -332,6 +332,10 @@ export const checkPermissions = () => invoke<Permissions>("check_permissions");
 export const getCompatibility = () =>
   invoke<CompatibilityReport>("get_compatibility");
 export const exportDiagnostics = () => invoke<string>("export_diagnostics");
+/** System uptime in seconds (from /proc/uptime). */
+export const systemUptime = () => invoke<number>("system_uptime");
+/** Fully quit Nexus (not just hide to tray). */
+export const quitApp = () => invoke<void>("quit_app");
 export const getSetupState = () => invoke<SetupState>("get_setup_state");
 export const setSetupComplete = () => invoke<void>("set_setup_complete");
 export const getAutostart = () => invoke<boolean>("get_autostart");

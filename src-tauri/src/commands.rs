@@ -837,6 +837,24 @@ pub fn export_diagnostics(app: State<'_, AppState>, control: State<'_, ControlSe
     diagnostics::report_markdown(&control, telemetry_ok(&app))
 }
 
+/// System uptime in seconds (from /proc/uptime). 0 if unavailable.
+#[tauri::command]
+pub fn system_uptime() -> u64 {
+    std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|s| s.split_whitespace().next().and_then(|x| x.parse::<f64>().ok()))
+        .map(|f| f as u64)
+        .unwrap_or(0)
+}
+
+/// Fully quit Nexus (the window close button only hides to tray; this is the
+/// explicit "Quit" action). Flushes logs first, mirroring the tray quit.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    logging::shutdown();
+    app.exit(0);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupState {

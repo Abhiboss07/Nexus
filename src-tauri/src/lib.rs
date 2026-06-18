@@ -184,6 +184,8 @@ pub fn run() {
             commands::run_health_check,
             commands::check_permissions,
             commands::export_diagnostics,
+            commands::system_uptime,
+            commands::quit_app,
             commands::get_setup_state,
             commands::set_setup_complete,
             commands::get_autostart,
