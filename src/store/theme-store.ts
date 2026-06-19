@@ -9,14 +9,11 @@ import {
 interface ThemeState {
   theme: ThemeId;
   background: BackgroundMode;
-  /** Master toggle for non-essential motion (independent of OS reduced-motion). */
-  reducedMotion: boolean;
   /** Global UI density. */
   density: "comfortable" | "compact";
 
   setTheme: (theme: ThemeId) => void;
   setBackground: (bg: BackgroundMode) => void;
-  setReducedMotion: (v: boolean) => void;
   setDensity: (d: ThemeState["density"]) => void;
 }
 
@@ -41,7 +38,6 @@ export const useThemeStore = create<ThemeState>()(
     (set) => ({
       theme: DEFAULT_THEME,
       background: DEFAULT_BACKGROUND,
-      reducedMotion: false,
       density: "comfortable",
 
       setTheme: (theme) => {
@@ -49,7 +45,6 @@ export const useThemeStore = create<ThemeState>()(
         set({ theme });
       },
       setBackground: (background) => set({ background }),
-      setReducedMotion: (reducedMotion) => set({ reducedMotion }),
       setDensity: (density) => set({ density }),
     }),
     {

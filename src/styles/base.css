@@ -167,6 +167,25 @@
     app-region: no-drag;
   }
 
+  /* Animation budget (Settings → Appearance → Animations).
+     off  — kill all motion (transitions + continuous animations)
+     low  — keep quick UI transitions, halt continuous/background motion
+     normal/extreme — default (extreme adds an ambient flourish in JS) */
+  [data-animations="off"] *,
+  [data-animations="off"] *::before,
+  [data-animations="off"] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  [data-animations="low"] *,
+  [data-animations="low"] *::before,
+  [data-animations="low"] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
   /* Skeleton shimmer used by loading states */
   .skeleton {
     position: relative;

@@ -332,6 +332,8 @@ export const checkPermissions = () => invoke<Permissions>("check_permissions");
 export const getCompatibility = () =>
   invoke<CompatibilityReport>("get_compatibility");
 export const exportDiagnostics = () => invoke<string>("export_diagnostics");
+/** Recent Nexus log lines (Settings → Diagnostics → Export Logs). */
+export const readLogs = () => invoke<string>("read_logs");
 /** System uptime in seconds (from /proc/uptime). */
 export const systemUptime = () => invoke<number>("system_uptime");
 /** Fully quit Nexus (not just hide to tray). */

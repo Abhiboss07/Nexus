@@ -22,6 +22,11 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
+  Activity,
+  Zap,
+  FileText,
+  Film,
+  Keyboard,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -35,6 +40,7 @@ import { THEMES } from "@/config/themes";
 import { BACKGROUNDS } from "@/config/backgrounds";
 import { useThemeStore } from "@/store/theme-store";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import { usePrefsStore, type AnimationLevel } from "@/store/prefs-store";
 import {
   useCapabilities,
   useHardwareProfile,
@@ -42,6 +48,7 @@ import {
   useGpu,
   useBattery,
 } from "@/hooks/use-telemetry";
+import { usePowerInfo, useControlActions } from "@/hooks/use-control";
 import { useIntegrations } from "@/hooks/use-integrations";
 import {
   isTauri,
@@ -56,10 +63,14 @@ import {
   listNexusProfiles,
   applyNexusProfile,
   getActiveProfile,
+  getAutomation,
+  setAutomation,
+  readLogs,
+  exportDiagnostics,
 } from "@/lib/ipc";
 import type { UpdateStatus } from "@/lib/system-types";
 import type { Plugin } from "@/lib/plugins-types";
-import type { NexusProfile } from "@/lib/power-types";
+import type { NexusProfile, AutomationConfig } from "@/lib/power-types";
 import { CapabilityBadge } from "@/components/ui/capability-gate";
 import { formatBytes } from "@/lib/format";
 import { stagger, fadeUp } from "@/lib/motion";
@@ -69,16 +80,27 @@ const SETTINGS_SECTIONS = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "system", label: "System", icon: Monitor },
   { id: "performance", label: "Performance", icon: Gauge },
+  { id: "rgb", label: "RGB", icon: Keyboard },
   { id: "battery", label: "Battery", icon: BatteryCharging },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "updates", label: "Updates", icon: RefreshCw },
   { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "diagnostics", label: "Diagnostics", icon: Activity },
   { id: "profiles", label: "Profiles", icon: UserCog },
+];
+
+const ANIMATION_LEVELS: { id: AnimationLevel; label: string; hint: string }[] = [
+  { id: "off", label: "Off", hint: "No motion" },
+  { id: "low", label: "Low", hint: "Transitions only" },
+  { id: "normal", label: "Normal", hint: "Default" },
+  { id: "extreme", label: "Extreme", hint: "+ ambient FX" },
 ];
 
 export default function SettingsPage() {
   const { theme, setTheme, background, setBackground, density, setDensity } =
     useThemeStore();
+  const animations = usePrefsStore((s) => s.animations);
+  const setAnimations = usePrefsStore((s) => s.setAnimations);
 
   return (
     <div>
@@ -132,12 +154,20 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
-              <div className="mt-md flex flex-wrap items-center gap-md">
+              <div className="mt-md flex flex-wrap items-center gap-lg">
                 <div className="flex items-center gap-sm">
                   <span className="text-sm text-content-muted">Density</span>
                   <div className="flex rounded-md border border-border p-2xs">
                     {(["comfortable", "compact"] as const).map((dn) => (
                       <button key={dn} onClick={() => setDensity(dn)} className={cn("rounded px-md py-xs text-sm font-medium capitalize transition-colors", density === dn ? "bg-accent/15 text-accent-strong" : "text-content-muted hover:text-content")}>{dn}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-sm">
+                  <span className="flex items-center gap-xs text-sm text-content-muted"><Film className="h-3.5 w-3.5" /> Animations</span>
+                  <div className="flex rounded-md border border-border p-2xs">
+                    {ANIMATION_LEVELS.map((a) => (
+                      <button key={a.id} onClick={() => setAnimations(a.id)} title={a.hint} className={cn("rounded px-sm py-xs text-sm font-medium transition-colors", animations === a.id ? "bg-accent/15 text-accent-strong" : "text-content-muted hover:text-content")}>{a.label}</button>
                     ))}
                   </div>
                 </div>
@@ -166,10 +196,12 @@ export default function SettingsPage() {
 
           <motion.section variants={fadeUp} id="system"><SystemPanel /></motion.section>
           <motion.section variants={fadeUp} id="performance"><PerformancePanel /></motion.section>
+          <motion.section variants={fadeUp} id="rgb"><RgbPanel /></motion.section>
           <motion.section variants={fadeUp} id="battery"><BatteryPanel /></motion.section>
           <motion.section variants={fadeUp} id="ai"><AiPanel /></motion.section>
           <motion.section variants={fadeUp} id="updates"><UpdatesPanel /></motion.section>
           <motion.section variants={fadeUp} id="plugins"><PluginsPanel /></motion.section>
+          <motion.section variants={fadeUp} id="diagnostics"><DiagnosticsPanel /></motion.section>
           <motion.section variants={fadeUp} id="profiles"><ProfilesPanel /></motion.section>
           <motion.section variants={fadeUp}><ApplicationSettings /></motion.section>
         </motion.div>
@@ -238,10 +270,26 @@ function SystemPanel() {
 
 /* ----------------------------- Performance ------------------------------- */
 
+const TELEMETRY_PRESETS = [
+  { ms: 1000, label: "1s" },
+  { ms: 2000, label: "2s" },
+  { ms: 5000, label: "5s" },
+  { ms: 10000, label: "10s" },
+];
+
+const PERF_MODES: { id: string; label: string; icon: LucideIcon }[] = [
+  { id: "power-saver", label: "Battery", icon: BatteryCharging },
+  { id: "balanced", label: "Balanced", icon: Gauge },
+  { id: "performance", label: "Performance", icon: Rocket },
+];
+
 function PerformancePanel() {
-  const { background, setBackground, reducedMotion, setReducedMotion } = useThemeStore();
+  const { background, setBackground } = useThemeStore();
   const intervalMs = useTelemetryStore((s) => s.pollIntervalMs);
   const setIntervalStore = useTelemetryStore((s) => s.setPollIntervalMs);
+  const power = usePowerInfo();
+  const actions = useControlActions();
+  const [powerMsg, setPowerMsg] = useState<string | null>(null);
 
   function applyInterval(ms: number) {
     // Store is the source of truth so the provider restores to it on focus.
@@ -249,38 +297,172 @@ function PerformancePanel() {
     if (isTauri()) setPollInterval(ms).catch(() => {});
   }
 
+  async function applyMode(id: string, label: string) {
+    const r = await actions.setPower(id);
+    setPowerMsg(r.ok ? `${label} mode applied.` : r.msg);
+  }
+
   const bgQuality = BACKGROUNDS.find((b) => b.id === background);
+  const currentPower = power?.current ?? null;
 
   return (
     <GlassCard padding="lg">
       <h3 className="text-lg font-semibold text-content">Performance</h3>
-      <p className="mb-md text-sm text-content-muted">Tune Nexus's own resource use.</p>
+      <p className="mb-md text-sm text-content-muted">Tune Nexus's resource use and the system power mode.</p>
 
+      {/* Performance mode → system power profile */}
       <div className="rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
-        <div className="mb-xs flex items-center justify-between">
-          <span className="text-sm font-medium text-content">Telemetry refresh interval</span>
-          <span className="text-xs font-semibold tabular-nums text-accent-strong">{(intervalMs / 1000).toFixed(2)}s</span>
+        <div className="mb-xs flex items-center gap-xs text-sm font-medium text-content"><Zap className="h-4 w-4 text-accent" /> Performance mode</div>
+        <div className="grid grid-cols-3 gap-sm">
+          {PERF_MODES.map((m) => {
+            const active = currentPower === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => applyMode(m.id, m.label)}
+                disabled={!power?.controllable && isTauri()}
+                className={cn("flex flex-col items-center gap-xs rounded-lg border p-md transition-all disabled:opacity-40", active ? "border-accent/60 bg-accent/8 shadow-glow" : "border-border hover:border-border-strong")}
+              >
+                <m.icon className={cn("h-5 w-5", active ? "text-accent-strong" : "text-content-muted")} />
+                <span className="text-sm font-medium text-content">{m.label}</span>
+              </button>
+            );
+          })}
         </div>
-        <Slider value={[intervalMs]} min={250} max={5000} step={250} onValueChange={(v) => applyInterval(v[0])} />
-        <p className="mt-xs text-2xs text-content-subtle">Faster = more responsive graphs; slower = lower CPU & battery use.</p>
+        {powerMsg && <p className="mt-xs text-2xs text-content-muted">{powerMsg}</p>}
       </div>
 
-      <label className="mt-md flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
-        <span>
-          <span className="block text-sm font-medium text-content">Reduce animations</span>
-          <span className="block text-2xs text-content-subtle">Disables motion effects across the app (better on battery).</span>
-        </span>
-        <Switch checked={reducedMotion} onCheckedChange={setReducedMotion} />
-      </label>
-
+      {/* Telemetry refresh — presets + fine slider */}
       <div className="mt-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
-        <p className="mb-xs text-sm font-medium text-content">Background effects quality</p>
+        <div className="mb-xs flex items-center justify-between">
+          <span className="flex items-center gap-xs text-sm font-medium text-content"><Activity className="h-4 w-4 text-accent" /> Telemetry refresh rate</span>
+          <span className="text-xs font-semibold tabular-nums text-accent-strong">{(intervalMs / 1000).toFixed(2)}s</span>
+        </div>
+        <div className="mb-sm flex gap-sm">
+          {TELEMETRY_PRESETS.map((p) => (
+            <button key={p.ms} onClick={() => applyInterval(p.ms)} className={cn("flex-1 rounded-md border py-xs text-xs font-medium transition-colors", intervalMs === p.ms ? "border-accent/60 bg-accent/10 text-accent-strong" : "border-border text-content-muted hover:text-content")}>{p.label}</button>
+          ))}
+        </div>
+        <Slider value={[intervalMs]} min={250} max={10000} step={250} onValueChange={(v) => applyInterval(v[0])} />
+        <p className="mt-xs text-2xs text-content-subtle">Faster = more responsive graphs; slower = lower CPU & battery use. Nexus auto-slows to 10s when minimized.</p>
+      </div>
+
+      {/* Background effects */}
+      <div className="mt-md rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <p className="mb-xs text-sm font-medium text-content">Background effects</p>
         <div className="flex flex-wrap gap-sm">
           {BACKGROUNDS.map((b) => (
             <button key={b.id} onClick={() => setBackground(b.id)} className={cn("rounded-md border px-sm py-xs text-xs font-medium transition-colors", background === b.id ? "border-accent/60 bg-accent/10 text-accent-strong" : "border-border text-content-muted hover:text-content")}>{b.label}</button>
           ))}
         </div>
-        <p className="mt-xs text-2xs text-content-subtle">Current cost: <span className="capitalize">{bgQuality?.cost ?? "—"}</span>. Use “Solid” or low-cost on battery.</p>
+        <p className="mt-xs text-2xs text-content-subtle">Current cost: <span className="capitalize">{bgQuality?.cost ?? "—"}</span>. Set Animations to “Off/Low” (Appearance) on battery.</p>
+      </div>
+    </GlassCard>
+  );
+}
+
+/* --------------------------------- RGB ----------------------------------- */
+
+function RgbPanel() {
+  const [cfg, setCfg] = useState<AutomationConfig | null>(null);
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    getAutomation().then((c) => { setCfg(c); setEnabled(c.enabled); }).catch(() => {});
+  }, []);
+
+  async function toggle(v: boolean) {
+    setEnabled(v);
+    if (!isTauri() || !cfg) return;
+    const next = { ...cfg, enabled: v };
+    setCfg(next);
+    await setAutomation(next).catch(() => setEnabled(!v));
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">RGB &amp; Lighting</h3>
+      <p className="mb-md text-sm text-content-muted">Control how Nexus drives your keyboard lighting.</p>
+
+      <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <span>
+          <span className="block text-sm font-medium text-content">Enable RGB automation</span>
+          <span className="block text-2xs text-content-subtle">Let saved automation rules apply lighting when conditions change (e.g. on AC, on game launch).</span>
+        </span>
+        <Switch checked={enabled} onCheckedChange={toggle} />
+      </label>
+
+      <div className="mt-md flex items-start gap-sm rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+        <p className="text-2xs text-content-muted">
+          Nexus never changes your lighting on launch — it only writes on your explicit actions or, when enabled above, a genuine automation trigger. Build profiles &amp; rules in <Link to="/rgb" className="text-accent-strong hover:underline">RGB Studio</Link>.
+        </p>
+      </div>
+    </GlassCard>
+  );
+}
+
+/* ----------------------------- Diagnostics ------------------------------- */
+
+function downloadText(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function DiagnosticsPanel() {
+  const perfOverlay = usePrefsStore((s) => s.perfOverlay);
+  const setPerfOverlay = usePrefsStore((s) => s.setPerfOverlay);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function exportLogs() {
+    setBusy("logs");
+    try {
+      const text = isTauri() ? await readLogs() : "# Nexus logs (demo build)\n";
+      downloadText("nexus-logs.txt", text || "(empty log)", "text/plain");
+    } catch (e) {
+      downloadText("nexus-logs.txt", `Failed to read logs: ${e}`, "text/plain");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function exportDiag() {
+    setBusy("diag");
+    try {
+      const md = isTauri() ? await exportDiagnostics() : "# Nexus Diagnostics (demo)\n";
+      downloadText("nexus-diagnostics.md", md, "text/markdown");
+    } catch (e) {
+      downloadText("nexus-diagnostics.md", `# Diagnostics\n(export failed: ${e})\n`, "text/markdown");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="text-lg font-semibold text-content">Diagnostics</h3>
+      <p className="mb-md text-sm text-content-muted">Performance instrumentation &amp; exportable reports.</p>
+
+      <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/40 p-md">
+        <span>
+          <span className="block text-sm font-medium text-content">Performance overlay</span>
+          <span className="block text-2xs text-content-subtle">Show a live FPS + frame-time meter in the corner.</span>
+        </span>
+        <Switch checked={perfOverlay} onCheckedChange={setPerfOverlay} />
+      </label>
+
+      <div className="mt-md flex flex-wrap gap-sm">
+        <Button variant="solid" size="md" onClick={exportLogs} disabled={busy === "logs"}>
+          {busy === "logs" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Export Logs
+        </Button>
+        <Button variant="solid" size="md" onClick={exportDiag} disabled={busy === "diag"}>
+          {busy === "diag" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export Diagnostics
+        </Button>
       </div>
     </GlassCard>
   );

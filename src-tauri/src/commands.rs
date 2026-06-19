@@ -837,6 +837,12 @@ pub fn export_diagnostics(app: State<'_, AppState>, control: State<'_, ControlSe
     diagnostics::report_markdown(&control, telemetry_ok(&app))
 }
 
+/// Recent Nexus log lines (for Settings → Diagnostics → Export Logs).
+#[tauri::command]
+pub fn read_logs() -> String {
+    logging::tail(5000)
+}
+
 /// System uptime in seconds (from /proc/uptime). 0 if unavailable.
 #[tauri::command]
 pub fn system_uptime() -> u64 {

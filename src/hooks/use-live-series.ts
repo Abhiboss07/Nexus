@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useThemeStore } from "@/store/theme-store";
+import { useReduceMotion } from "@/store/prefs-store";
 
 /**
  * Rolling time-series that ticks on an interval — drives "live" telemetry in
@@ -11,7 +11,7 @@ export function useLiveSeries(
   opts: { length?: number; intervalMs?: number; seed?: number } = {},
 ) {
   const { length = 40, intervalMs = 1500, seed = 40 } = opts;
-  const reduced = useThemeStore((s) => s.reducedMotion);
+  const reduced = useReduceMotion();
   const [series, setSeries] = useState<number[]>(() =>
     Array.from({ length }, () => seed),
   );
@@ -38,7 +38,7 @@ export function useLiveValue(
   amplitude = 8,
   intervalMs = 1500,
 ): number {
-  const reduced = useThemeStore((s) => s.reducedMotion);
+  const reduced = useReduceMotion();
   const [v, setV] = useState(base);
   useEffect(() => {
     if (reduced) return;

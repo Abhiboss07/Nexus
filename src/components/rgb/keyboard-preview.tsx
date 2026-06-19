@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useThemeStore } from "@/store/theme-store";
+import { useReduceMotion } from "@/store/prefs-store";
 
 /** The eleven effects exposed by the omen-rgb-keyboard driver. */
 export type RgbEffect =
@@ -47,7 +47,7 @@ export function KeyboardPreview({
   brightness: number;
   speed: number;
 }) {
-  const reduced = useThemeStore((s) => s.reducedMotion);
+  const reduced = useReduceMotion();
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {

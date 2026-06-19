@@ -6,6 +6,7 @@ import { BackgroundCanvas } from "@/components/background/background-canvas";
 import { CommandPalette } from "@/components/command/command-palette";
 import { SetupWizard } from "@/components/shell/setup-wizard";
 import { RenderCountOverlay } from "@/components/dev/render-count";
+import { PerfOverlay } from "@/components/dev/perf-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGlobalHotkeys } from "@/hooks/use-hotkeys";
 import { pageTransition } from "@/lib/motion";
@@ -24,6 +25,7 @@ export function AppShell() {
       <CommandPalette />
       <SetupWizard />
       <RenderCountOverlay />
+      <PerfOverlay />
 
       <div className="flex h-screen w-screen overflow-hidden">
         <Sidebar />

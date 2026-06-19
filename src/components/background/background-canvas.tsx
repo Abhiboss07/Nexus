@@ -1,14 +1,22 @@
 import { memo } from "react";
 import { useThemeStore } from "@/store/theme-store";
+import { usePrefsStore } from "@/store/prefs-store";
 import { ParticleField } from "./particle-field";
 
 /**
  * The app-wide ambient background. Sits behind the entire shell (z -10) and
  * renders one of six modes. Everything is GPU-cheap CSS except the particle
  * field, which is opt-in. Wrapped in memo so theme/route changes don't churn it.
+ *
+ * Honors the animation budget: at "off" the moving layers are dropped (just the
+ * static vignette remains); at "extreme" a faint particle layer is overlaid on
+ * top of whatever mode is selected.
  */
 export const BackgroundCanvas = memo(function BackgroundCanvas() {
   const background = useThemeStore((s) => s.background);
+  const animations = usePrefsStore((s) => s.animations);
+  const showAnimated = animations !== "off";
+  const extreme = animations === "extreme";
 
   return (
     <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-canvas">
@@ -19,7 +27,7 @@ export const BackgroundCanvas = memo(function BackgroundCanvas() {
         <div className="absolute inset-0 opacity-70 bg-[radial-gradient(60%_60%_at_15%_10%,rgb(var(--bg-aurora-a)/0.18),transparent_60%),radial-gradient(50%_50%_at_85%_20%,rgb(var(--bg-aurora-b)/0.16),transparent_60%),radial-gradient(60%_60%_at_60%_100%,rgb(var(--bg-aurora-c)/0.12),transparent_60%)]" />
       )}
 
-      {background === "aurora" && (
+      {background === "aurora" && showAnimated && (
         <>
           <div className="absolute -left-[10%] top-[-15%] h-[55vh] w-[55vh] rounded-full bg-[rgb(var(--bg-aurora-a))] opacity-25 blur-[120px] animate-aurora-shift" />
           <div className="absolute right-[-8%] top-[10%] h-[45vh] w-[45vh] rounded-full bg-[rgb(var(--bg-aurora-b))] opacity-20 blur-[120px] animate-aurora-shift [animation-delay:-6s]" />
@@ -27,7 +35,7 @@ export const BackgroundCanvas = memo(function BackgroundCanvas() {
         </>
       )}
 
-      {background === "mesh" && (
+      {background === "mesh" && showAnimated && (
         <div
           className="absolute inset-0 opacity-80 animate-aurora-shift"
           style={{
@@ -40,7 +48,7 @@ export const BackgroundCanvas = memo(function BackgroundCanvas() {
         />
       )}
 
-      {background === "grid" && (
+      {background === "grid" && showAnimated && (
         <>
           <div className="absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgb(var(--color-accent)/0.1),transparent_70%)]" />
           <div
@@ -57,8 +65,15 @@ export const BackgroundCanvas = memo(function BackgroundCanvas() {
         </>
       )}
 
-      {background === "particles" && (
+      {background === "particles" && showAnimated && (
         <div className="absolute inset-0 opacity-90">
+          <ParticleField />
+        </div>
+      )}
+
+      {/* Extreme: ambient particle flourish layered over any non-particle mode. */}
+      {extreme && background !== "particles" && (
+        <div className="absolute inset-0 opacity-40">
           <ParticleField />
         </div>
       )}
