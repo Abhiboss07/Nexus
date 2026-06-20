@@ -1,7 +1,4 @@
 import {
-  Moon,
-  Sun,
-  Monitor,
   Zap,
   Sparkles,
   Gauge,
@@ -9,7 +6,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { NavigateFunction } from "react-router-dom";
-import type { ThemeId } from "@/config/themes";
+import { THEMES, type ThemeId } from "@/config/themes";
 import type { BackgroundMode } from "@/config/backgrounds";
 
 export interface CommandAction {
@@ -29,63 +26,23 @@ export interface CommandContext {
   close: () => void;
 }
 
+/** One palette command per theme, generated from the theme registry so the list
+ *  never drifts from THEMES. */
+const THEME_COMMANDS: CommandAction[] = THEMES.map((t) => ({
+  id: `theme-${t.id}`,
+  label: `Theme: ${t.label}`,
+  icon: PaletteIcon,
+  group: "Theme" as const,
+  keywords: [t.label.toLowerCase(), t.id, t.scheme],
+  run: ({ setTheme, close }: CommandContext) => {
+    setTheme(t.id);
+    close();
+  },
+}));
+
 /** Non-navigation commands. Navigation entries are generated from NAV_ITEMS. */
 export const ACTION_COMMANDS: CommandAction[] = [
-  {
-    id: "theme-dark",
-    label: "Switch to Dark theme",
-    icon: Moon,
-    group: "Theme",
-    keywords: ["dark", "night"],
-    run: ({ setTheme, close }) => {
-      setTheme("dark");
-      close();
-    },
-  },
-  {
-    id: "theme-light",
-    label: "Switch to Light theme",
-    icon: Sun,
-    group: "Theme",
-    keywords: ["light", "day", "bright"],
-    run: ({ setTheme, close }) => {
-      setTheme("light");
-      close();
-    },
-  },
-  {
-    id: "theme-oled",
-    label: "Switch to OLED Black",
-    icon: Monitor,
-    group: "Theme",
-    keywords: ["oled", "black", "amoled"],
-    run: ({ setTheme, close }) => {
-      setTheme("oled");
-      close();
-    },
-  },
-  {
-    id: "theme-cyberpunk",
-    label: "Switch to Cyberpunk",
-    icon: PaletteIcon,
-    group: "Theme",
-    keywords: ["neon", "cyber", "magenta"],
-    run: ({ setTheme, close }) => {
-      setTheme("cyberpunk");
-      close();
-    },
-  },
-  {
-    id: "theme-rgb",
-    label: "Switch to Nexus RGB",
-    icon: Sparkles,
-    group: "Theme",
-    keywords: ["rgb", "rainbow", "chroma"],
-    run: ({ setTheme, close }) => {
-      setTheme("nexus-rgb");
-      close();
-    },
-  },
+  ...THEME_COMMANDS,
   {
     id: "bg-aurora",
     label: "Background: Aurora",

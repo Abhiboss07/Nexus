@@ -134,55 +134,6 @@
 }
 
 /* =============================================================================
-   THEME: LIGHT
-   ============================================================================= */
-[data-theme="light"] {
-  color-scheme: light;
-
-  --color-canvas: 244 246 251;
-  --color-surface: 255 255 255;
-  --color-surface-raised: 255 255 255;
-  --color-surface-sunken: 237 240 247;
-
-  --color-border: 222 227 238;
-  --color-border-strong: 200 207 222;
-  --color-border-subtle: 233 236 244;
-
-  --color-text: 22 26 38;
-  --color-text-muted: 90 98 120;
-  --color-text-subtle: 140 148 168;
-  --color-text-inverted: 255 255 255;
-
-  --color-accent: 99 67 235;
-  --color-accent-soft: 124 92 255;
-  --color-accent-strong: 80 50 210;
-  --color-accent-contrast: 255 255 255;
-  --color-iris: 14 165 233;
-
-  --color-success: 16 185 129;
-  --color-warning: 217 119 6;
-  --color-danger: 220 38 38;
-  --color-info: 37 99 235;
-
-  --glass-bg: 255 255 255;
-  --glass-bg-opacity: 0.55;
-  --glass-border-opacity: 0.6;
-  --glass-highlight-opacity: 0.9;
-
-  --elevation-1: 0 1px 2px rgb(20 30 60 / 0.06), 0 1px 1px rgb(20 30 60 / 0.04);
-  --elevation-2: 0 6px 16px rgb(20 30 60 / 0.08), 0 2px 4px rgb(20 30 60 / 0.05);
-  --elevation-3: 0 14px 38px rgb(20 30 60 / 0.1), 0 4px 8px rgb(20 30 60 / 0.06);
-  --elevation-4: 0 28px 70px rgb(20 30 60 / 0.14), 0 8px 16px rgb(20 30 60 / 0.08);
-  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.22);
-  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.35);
-  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.8);
-
-  --bg-aurora-a: 124 92 255;
-  --bg-aurora-b: 14 165 233;
-  --bg-aurora-c: 236 72 153;
-}
-
-/* =============================================================================
    THEME: OLED  (true black for max contrast + power saving on OLED panels)
    ============================================================================= */
 [data-theme="oled"] {
@@ -281,54 +232,363 @@
 }
 
 /* =============================================================================
-   THEME: NEXUS RGB  (chroma-cycling accent — driven by --rgb-hue from JS/anim)
+   DARK-FAMILY THEMES
+   Each overrides only colors/glows; structural glass + elevation mirror Dark.
    ============================================================================= */
-[data-theme="nexus-rgb"] {
+
+/* THEME: MATRIX — green-on-black terminal */
+[data-theme="matrix"] {
   color-scheme: dark;
-  --rgb-hue: 270;
+  --color-canvas: 2 8 3;
+  --color-surface: 6 18 9;
+  --color-surface-raised: 10 26 14;
+  --color-surface-sunken: 2 10 4;
+  --color-border: 22 64 32;
+  --color-border-strong: 38 104 54;
+  --color-border-subtle: 14 42 21;
+  --color-text: 205 255 214;
+  --color-text-muted: 120 206 142;
+  --color-text-subtle: 78 150 98;
+  --color-text-inverted: 2 8 3;
+  --color-accent: 0 255 102;
+  --color-accent-soft: 0 200 80;
+  --color-accent-strong: 120 255 160;
+  --color-accent-contrast: 2 12 4;
+  --color-iris: 125 255 155;
+  --color-success: 57 255 140;
+  --color-warning: 214 255 80;
+  --color-danger: 255 96 96;
+  --color-info: 80 255 200;
+  --glass-bg: 0 255 120;
+  --glass-bg-opacity: 0.04;
+  --glass-border-opacity: 0.14;
+  --glass-highlight-opacity: 0.08;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elevation-2: 0 4px 16px rgb(0 40 16 / 0.55), 0 0 0 1px rgb(0 255 102 / 0.06);
+  --elevation-3: 0 12px 40px rgb(0 40 16 / 0.6), 0 0 0 1px rgb(0 255 102 / 0.1);
+  --elevation-4: 0 24px 70px rgb(0 40 16 / 0.65), 0 0 0 1px rgb(0 255 102 / 0.14);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.5);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.7);
+  --shadow-inset: inset 0 1px 0 rgb(180 255 200 / 0.06);
+  --bg-aurora-a: 0 255 102;
+  --bg-aurora-b: 125 255 155;
+  --bg-aurora-c: 0 200 120;
+}
 
-  --color-canvas: 6 7 14;
-  --color-surface: 14 16 27;
-  --color-surface-raised: 20 23 38;
-  --color-surface-sunken: 9 10 19;
+/* THEME: MOLTEN — orange & red energy */
+[data-theme="molten"] {
+  color-scheme: dark;
+  --color-canvas: 20 8 5;
+  --color-surface: 33 14 9;
+  --color-surface-raised: 44 19 12;
+  --color-surface-sunken: 24 9 6;
+  --color-border: 96 40 24;
+  --color-border-strong: 150 64 36;
+  --color-border-subtle: 64 26 16;
+  --color-text: 255 234 224;
+  --color-text-muted: 230 168 140;
+  --color-text-subtle: 180 120 96;
+  --color-text-inverted: 20 8 5;
+  --color-accent: 255 106 43;
+  --color-accent-soft: 220 80 30;
+  --color-accent-strong: 255 140 80;
+  --color-accent-contrast: 20 8 5;
+  --color-iris: 255 59 59;
+  --color-success: 86 220 130;
+  --color-warning: 255 186 70;
+  --color-danger: 255 70 70;
+  --color-info: 255 150 90;
+  --glass-bg: 255 120 60;
+  --glass-bg-opacity: 0.05;
+  --glass-border-opacity: 0.15;
+  --glass-highlight-opacity: 0.09;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elevation-2: 0 4px 16px rgb(60 16 0 / 0.5), 0 0 0 1px rgb(255 106 43 / 0.07);
+  --elevation-3: 0 12px 40px rgb(60 16 0 / 0.55), 0 0 0 1px rgb(255 106 43 / 0.11);
+  --elevation-4: 0 24px 70px rgb(60 16 0 / 0.6), 0 0 0 1px rgb(255 106 43 / 0.15);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.55);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.75);
+  --shadow-inset: inset 0 1px 0 rgb(255 220 200 / 0.06);
+  --bg-aurora-a: 255 106 43;
+  --bg-aurora-b: 255 59 59;
+  --bg-aurora-c: 255 176 64;
+}
 
-  --color-border: 40 44 66;
-  --color-border-strong: 64 70 100;
-  --color-border-subtle: 28 31 48;
-
-  --color-text: 236 240 250;
-  --color-text-muted: 158 166 190;
-  --color-text-subtle: 106 114 140;
-  --color-text-inverted: 6 7 14;
-
-  /* Accent is resolved from the animated hue; see tokens animation in base.css */
-  --color-accent: 138 110 255;
-  --color-accent-soft: 104 84 210;
-  --color-accent-strong: 168 140 255;
+/* THEME: MIDNIGHT — deep navy & electric blue */
+[data-theme="midnight"] {
+  color-scheme: dark;
+  --color-canvas: 7 11 28;
+  --color-surface: 13 19 44;
+  --color-surface-raised: 19 27 60;
+  --color-surface-sunken: 8 12 32;
+  --color-border: 34 46 86;
+  --color-border-strong: 52 70 124;
+  --color-border-subtle: 24 33 64;
+  --color-text: 226 234 255;
+  --color-text-muted: 148 164 208;
+  --color-text-subtle: 100 116 162;
+  --color-text-inverted: 7 11 28;
+  --color-accent: 59 130 246;
+  --color-accent-soft: 44 100 200;
+  --color-accent-strong: 110 168 255;
   --color-accent-contrast: 255 255 255;
-  --color-iris: 0 224 255;
-
+  --color-iris: 34 211 238;
   --color-success: 52 211 153;
   --color-warning: 251 191 36;
   --color-danger: 248 113 113;
   --color-info: 96 165 250;
-
-  --glass-bg: 255 255 255;
+  --glass-bg: 120 170 255;
   --glass-bg-opacity: 0.045;
+  --glass-border-opacity: 0.12;
+  --glass-highlight-opacity: 0.08;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.45);
+  --elevation-2: 0 4px 16px rgb(0 8 40 / 0.55), 0 0 0 1px rgb(59 130 246 / 0.06);
+  --elevation-3: 0 12px 40px rgb(0 8 40 / 0.6), 0 0 0 1px rgb(59 130 246 / 0.1);
+  --elevation-4: 0 24px 70px rgb(0 8 40 / 0.65), 0 0 0 1px rgb(59 130 246 / 0.14);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.5);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.7);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --bg-aurora-a: 59 130 246;
+  --bg-aurora-b: 34 211 238;
+  --bg-aurora-c: 99 102 241;
+}
+
+/* THEME: EMERALD — premium emerald green */
+[data-theme="emerald"] {
+  color-scheme: dark;
+  --color-canvas: 4 18 13;
+  --color-surface: 8 28 21;
+  --color-surface-raised: 12 38 29;
+  --color-surface-sunken: 4 20 15;
+  --color-border: 22 70 52;
+  --color-border-strong: 36 110 82;
+  --color-border-subtle: 16 48 36;
+  --color-text: 220 248 236;
+  --color-text-muted: 138 198 174;
+  --color-text-subtle: 92 146 124;
+  --color-text-inverted: 4 18 13;
+  --color-accent: 16 185 129;
+  --color-accent-soft: 13 150 105;
+  --color-accent-strong: 52 211 153;
+  --color-accent-contrast: 3 16 11;
+  --color-iris: 45 212 191;
+  --color-success: 52 211 153;
+  --color-warning: 250 204 21;
+  --color-danger: 248 113 113;
+  --color-info: 45 212 191;
+  --glass-bg: 80 230 180;
+  --glass-bg-opacity: 0.045;
+  --glass-border-opacity: 0.13;
+  --glass-highlight-opacity: 0.08;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.45);
+  --elevation-2: 0 4px 16px rgb(0 30 20 / 0.55), 0 0 0 1px rgb(16 185 129 / 0.07);
+  --elevation-3: 0 12px 40px rgb(0 30 20 / 0.6), 0 0 0 1px rgb(16 185 129 / 0.11);
+  --elevation-4: 0 24px 70px rgb(0 30 20 / 0.65), 0 0 0 1px rgb(16 185 129 / 0.15);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.5);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.7);
+  --shadow-inset: inset 0 1px 0 rgb(200 255 230 / 0.05);
+  --bg-aurora-a: 16 185 129;
+  --bg-aurora-b: 45 212 191;
+  --bg-aurora-c: 34 197 94;
+}
+
+/* THEME: CRIMSON — dark red command */
+[data-theme="crimson"] {
+  color-scheme: dark;
+  --color-canvas: 22 6 8;
+  --color-surface: 34 11 14;
+  --color-surface-raised: 46 16 20;
+  --color-surface-sunken: 24 7 9;
+  --color-border: 92 30 38;
+  --color-border-strong: 144 48 58;
+  --color-border-subtle: 60 20 26;
+  --color-text: 255 228 230;
+  --color-text-muted: 228 158 166;
+  --color-text-subtle: 176 110 118;
+  --color-text-inverted: 22 6 8;
+  --color-accent: 239 68 68;
+  --color-accent-soft: 200 50 50;
+  --color-accent-strong: 248 113 113;
+  --color-accent-contrast: 22 6 8;
+  --color-iris: 251 113 133;
+  --color-success: 74 222 128;
+  --color-warning: 251 191 36;
+  --color-danger: 255 80 80;
+  --color-info: 244 114 182;
+  --glass-bg: 255 90 100;
+  --glass-bg-opacity: 0.05;
+  --glass-border-opacity: 0.14;
+  --glass-highlight-opacity: 0.08;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elevation-2: 0 4px 16px rgb(50 6 10 / 0.55), 0 0 0 1px rgb(239 68 68 / 0.07);
+  --elevation-3: 0 12px 40px rgb(50 6 10 / 0.6), 0 0 0 1px rgb(239 68 68 / 0.11);
+  --elevation-4: 0 24px 70px rgb(50 6 10 / 0.65), 0 0 0 1px rgb(239 68 68 / 0.15);
+  --shadow-glow: 0 0 28px rgb(var(--color-accent) / 0.5);
+  --shadow-glow-strong: 0 0 60px rgb(var(--color-accent) / 0.72);
+  --shadow-inset: inset 0 1px 0 rgb(255 220 224 / 0.06);
+  --bg-aurora-a: 239 68 68;
+  --bg-aurora-b: 251 113 133;
+  --bg-aurora-c: 220 38 38;
+}
+
+/* THEME: TITANIUM — silver & graphite (cool monochrome) */
+[data-theme="titanium"] {
+  color-scheme: dark;
+  --color-canvas: 14 15 18;
+  --color-surface: 22 24 29;
+  --color-surface-raised: 30 33 40;
+  --color-surface-sunken: 15 16 20;
+  --color-border: 50 55 64;
+  --color-border-strong: 76 83 96;
+  --color-border-subtle: 36 40 48;
+  --color-text: 233 237 243;
+  --color-text-muted: 160 168 182;
+  --color-text-subtle: 112 120 134;
+  --color-text-inverted: 14 15 18;
+  --color-accent: 154 166 178;
+  --color-accent-soft: 120 132 146;
+  --color-accent-strong: 203 213 225;
+  --color-accent-contrast: 14 15 18;
+  --color-iris: 148 163 184;
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+  --color-info: 125 211 252;
+  --glass-bg: 220 228 238;
+  --glass-bg-opacity: 0.05;
   --glass-border-opacity: 0.1;
   --glass-highlight-opacity: 0.07;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.45);
+  --elevation-2: 0 4px 16px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(203 213 225 / 0.05);
+  --elevation-3: 0 12px 40px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(203 213 225 / 0.08);
+  --elevation-4: 0 24px 70px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(203 213 225 / 0.1);
+  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.35);
+  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.5);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --bg-aurora-a: 154 166 178;
+  --bg-aurora-b: 203 213 225;
+  --bg-aurora-c: 100 116 139;
+}
 
-  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.4);
-  --elevation-2: 0 4px 14px rgb(0 0 0 / 0.45), 0 2px 4px rgb(0 0 0 / 0.3);
-  --elevation-3: 0 12px 36px rgb(0 0 0 / 0.5), 0 4px 8px rgb(0 0 0 / 0.35);
-  --elevation-4: 0 24px 66px rgb(0 0 0 / 0.55), 0 8px 16px rgb(0 0 0 / 0.4);
-  --shadow-glow: 0 0 30px rgb(var(--color-accent) / 0.5);
-  --shadow-glow-strong: 0 0 64px rgb(var(--color-accent) / 0.7);
-  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.05);
+/* THEME: SYNTHWAVE — purple & neon pink */
+[data-theme="synthwave"] {
+  color-scheme: dark;
+  --color-canvas: 21 10 38;
+  --color-surface: 31 15 56;
+  --color-surface-raised: 42 20 74;
+  --color-surface-sunken: 23 11 42;
+  --color-border: 78 38 122;
+  --color-border-strong: 120 58 178;
+  --color-border-subtle: 52 26 84;
+  --color-text: 246 234 255;
+  --color-text-muted: 198 158 232;
+  --color-text-subtle: 150 114 188;
+  --color-text-inverted: 21 10 38;
+  --color-accent: 168 85 247;
+  --color-accent-soft: 138 64 210;
+  --color-accent-strong: 196 130 255;
+  --color-accent-contrast: 21 10 38;
+  --color-iris: 255 94 211;
+  --color-success: 80 240 200;
+  --color-warning: 250 224 100;
+  --color-danger: 255 80 140;
+  --color-info: 96 200 255;
+  --glass-bg: 220 130 255;
+  --glass-bg-opacity: 0.05;
+  --glass-border-opacity: 0.15;
+  --glass-highlight-opacity: 0.09;
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elevation-2: 0 4px 16px rgb(40 0 60 / 0.55), 0 0 0 1px rgb(168 85 247 / 0.08);
+  --elevation-3: 0 12px 40px rgb(40 0 60 / 0.6), 0 0 0 1px rgb(168 85 247 / 0.12);
+  --elevation-4: 0 24px 70px rgb(40 0 60 / 0.65), 0 0 0 1px rgb(168 85 247 / 0.16);
+  --shadow-glow: 0 0 30px rgb(var(--color-accent) / 0.55);
+  --shadow-glow-strong: 0 0 64px rgb(255 94 211 / 0.7);
+  --shadow-inset: inset 0 1px 0 rgb(255 220 255 / 0.06);
+  --bg-aurora-a: 168 85 247;
+  --bg-aurora-b: 255 94 211;
+  --bg-aurora-c: 96 165 250;
+}
 
-  --bg-aurora-a: 138 110 255;
-  --bg-aurora-b: 0 224 255;
-  --bg-aurora-c: 236 72 153;
+/* =============================================================================
+   LIGHT-FAMILY THEMES
+   ============================================================================= */
+
+/* THEME: ARCTIC — ice blue on white */
+[data-theme="arctic"] {
+  color-scheme: light;
+  --color-canvas: 240 246 251;
+  --color-surface: 255 255 255;
+  --color-surface-raised: 255 255 255;
+  --color-surface-sunken: 228 237 246;
+  --color-border: 206 220 234;
+  --color-border-strong: 176 196 216;
+  --color-border-subtle: 220 231 242;
+  --color-text: 15 35 56;
+  --color-text-muted: 74 102 130;
+  --color-text-subtle: 122 146 170;
+  --color-text-inverted: 255 255 255;
+  --color-accent: 14 165 233;
+  --color-accent-soft: 56 189 248;
+  --color-accent-strong: 2 132 199;
+  --color-accent-contrast: 255 255 255;
+  --color-iris: 6 182 212;
+  --color-success: 5 150 105;
+  --color-warning: 217 119 6;
+  --color-danger: 220 38 38;
+  --color-info: 2 132 199;
+  --glass-bg: 255 255 255;
+  --glass-bg-opacity: 0.55;
+  --glass-border-opacity: 0.6;
+  --glass-highlight-opacity: 0.9;
+  --elevation-1: 0 1px 2px rgb(15 60 90 / 0.06), 0 1px 1px rgb(15 60 90 / 0.04);
+  --elevation-2: 0 6px 16px rgb(15 60 90 / 0.08), 0 2px 4px rgb(15 60 90 / 0.05);
+  --elevation-3: 0 14px 38px rgb(15 60 90 / 0.1), 0 4px 8px rgb(15 60 90 / 0.06);
+  --elevation-4: 0 28px 70px rgb(15 60 90 / 0.14), 0 8px 16px rgb(15 60 90 / 0.08);
+  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.22);
+  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.34);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.8);
+  --bg-aurora-a: 14 165 233;
+  --bg-aurora-b: 56 189 248;
+  --bg-aurora-c: 125 211 252;
+}
+
+/* THEME: SOLARIZED — warm, professional (solarized light) */
+[data-theme="solarized"] {
+  color-scheme: light;
+  --color-canvas: 253 246 227;
+  --color-surface: 255 252 240;
+  --color-surface-raised: 255 253 245;
+  --color-surface-sunken: 238 232 213;
+  --color-border: 224 216 190;
+  --color-border-strong: 198 188 158;
+  --color-border-subtle: 234 227 204;
+  --color-text: 60 58 46;
+  --color-text-muted: 101 123 131;
+  --color-text-subtle: 147 161 161;
+  --color-text-inverted: 253 246 227;
+  --color-accent: 38 139 210;
+  --color-accent-soft: 42 161 152;
+  --color-accent-strong: 28 110 170;
+  --color-accent-contrast: 253 246 227;
+  --color-iris: 42 161 152;
+  --color-success: 133 153 0;
+  --color-warning: 181 137 0;
+  --color-danger: 220 50 47;
+  --color-info: 38 139 210;
+  --glass-bg: 255 252 240;
+  --glass-bg-opacity: 0.6;
+  --glass-border-opacity: 0.55;
+  --glass-highlight-opacity: 0.85;
+  --elevation-1: 0 1px 2px rgb(90 80 40 / 0.07), 0 1px 1px rgb(90 80 40 / 0.05);
+  --elevation-2: 0 6px 16px rgb(90 80 40 / 0.1), 0 2px 4px rgb(90 80 40 / 0.06);
+  --elevation-3: 0 14px 38px rgb(90 80 40 / 0.12), 0 4px 8px rgb(90 80 40 / 0.07);
+  --elevation-4: 0 28px 70px rgb(90 80 40 / 0.16), 0 8px 16px rgb(90 80 40 / 0.09);
+  --shadow-glow: 0 0 24px rgb(var(--color-accent) / 0.22);
+  --shadow-glow-strong: 0 0 48px rgb(var(--color-accent) / 0.34);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.7);
+  --bg-aurora-a: 38 139 210;
+  --bg-aurora-b: 42 161 152;
+  --bg-aurora-c: 181 137 0;
 }
 
 /* Accessibility: honor reduced-motion at the token layer. */

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_THEME, type ThemeId } from "@/config/themes";
+import { DEFAULT_THEME, THEMES, type ThemeId } from "@/config/themes";
 import {
   DEFAULT_BACKGROUND,
   type BackgroundMode,
@@ -27,7 +27,7 @@ export function applyThemeToDOM(theme: ThemeId) {
   root.classList.add("theme-animating");
   root.setAttribute("data-theme", theme);
   // dark/light class drives Tailwind's `dark:` variant + native form controls.
-  const isLight = theme === "light";
+  const isLight = (THEMES.find((t) => t.id === theme)?.scheme ?? "dark") === "light";
   root.classList.toggle("dark", !isLight);
   root.classList.toggle("light", isLight);
   window.setTimeout(() => root.classList.remove("theme-animating"), 240);
@@ -50,7 +50,12 @@ export const useThemeStore = create<ThemeState>()(
     {
       name: "nexus.theme",
       onRehydrateStorage: () => (state) => {
-        if (state) applyThemeToDOM(state.theme);
+        if (!state) return;
+        // Heal a stale persisted id (e.g. a theme removed in a redesign).
+        const valid = THEMES.some((t) => t.id === state.theme);
+        const theme = valid ? state.theme : DEFAULT_THEME;
+        if (!valid) useThemeStore.setState({ theme });
+        applyThemeToDOM(theme);
       },
     },
   ),
