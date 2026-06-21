@@ -3,6 +3,8 @@ import {
   isTauri,
   getIntegrations,
   installIntegration,
+  uninstallIntegration,
+  openIntegration,
   flatpakHealth,
   addFlathub as ipcAddFlathub,
 } from "@/lib/ipc";
@@ -17,7 +19,17 @@ const d = (
   hint: string,
   docUrl: string,
   flatpakId = "",
-): Integration => ({ id, name, category, detected, detail, hint, docUrl, flatpakId });
+): Integration => ({
+  id,
+  name,
+  category,
+  detected,
+  detail,
+  hint,
+  docUrl,
+  flatpakId,
+  source: detected ? (flatpakId ? "flatpak" : "path") : "",
+});
 
 const DEMO: Integration[] = [
   d("mangohud", "MangoHud", "gaming", false, "", "sudo pacman -S mangohud", "https://github.com/flightlessmango/MangoHud"),
@@ -80,6 +92,22 @@ export function useIntegrations() {
     return msg;
   }
 
+  /** Uninstall a flatpak-managed integration; refreshes detection after. */
+  async function uninstall(item: Integration): Promise<string> {
+    if (!item.flatpakId) throw new Error("This tool isn't managed by Nexus.");
+    if (!isTauri()) return `Demo — would uninstall ${item.name}.`;
+    const msg = await uninstallIntegration(item.flatpakId);
+    load();
+    return msg;
+  }
+
+  /** Launch a flatpak-managed integration. */
+  async function open(item: Integration): Promise<string> {
+    if (!item.flatpakId) throw new Error("This app can't be launched from Nexus.");
+    if (!isTauri()) return `Demo — would launch ${item.name}.`;
+    return openIntegration(item.flatpakId);
+  }
+
   /** One-click "Add Flathub"; refreshes health + detection afterward. */
   async function addFlathub(): Promise<string> {
     if (!isTauri()) {
@@ -91,5 +119,5 @@ export function useIntegrations() {
     return msg;
   }
 
-  return { items, health, loading, refresh: load, install, addFlathub };
+  return { items, health, loading, refresh: load, install, uninstall, open, addFlathub };
 }

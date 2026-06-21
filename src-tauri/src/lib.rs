@@ -146,6 +146,8 @@ pub fn run() {
             commands::launch_manual_game,
             commands::get_integrations,
             commands::install_integration,
+            commands::uninstall_integration,
+            commands::open_integration,
             commands::flatpak_health,
             commands::add_flathub,
             commands::get_charge_limit_evidence,

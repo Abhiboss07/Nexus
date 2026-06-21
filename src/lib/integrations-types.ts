@@ -19,6 +19,8 @@ export interface Integration {
   docUrl: string;
   /** Non-empty when the tool can be installed one-click via Flatpak. */
   flatpakId: string;
+  /** How it was detected: "path" | "flatpak" | "package" | "desktop" | "". */
+  source: string;
 }
 
 /** Flatpak readiness — drives the "Add Flathub" prompt and per-card states. */

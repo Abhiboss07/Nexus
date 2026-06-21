@@ -27,6 +27,8 @@ import {
   Loader2,
   AlertTriangle,
   PackagePlus,
+  Trash2,
+  Play,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -82,7 +84,7 @@ const CATEGORIES: { id: IntegrationCategory; label: string; icon: LucideIcon }[]
 ];
 
 export default function IntegrationsPage() {
-  const { items, health, loading, refresh, install, addFlathub } = useIntegrations();
+  const { items, health, loading, refresh, install, uninstall, open, addFlathub } = useIntegrations();
   const detected = items.filter((i) => i.detected).length;
 
   return (
@@ -118,7 +120,7 @@ export default function IntegrationsPage() {
               />
               <div className="grid grid-cols-1 gap-md sm:grid-cols-2 lg:grid-cols-3">
                 {group.map((it) => (
-                  <IntegrationCard key={it.id} item={it} health={health} install={install} />
+                  <IntegrationCard key={it.id} item={it} health={health} install={install} uninstall={uninstall} open={open} />
                 ))}
               </div>
             </motion.section>
@@ -229,12 +231,32 @@ function IndeterminateBar() {
   );
 }
 
-function IntegrationCard({ item, health, install }: { item: Integration; health: FlatpakHealth; install: (i: Integration) => Promise<string> }) {
+function IntegrationCard({ item, health, install, uninstall, open }: {
+  item: Integration;
+  health: FlatpakHealth;
+  install: (i: Integration) => Promise<string>;
+  uninstall: (i: Integration) => Promise<string>;
+  open: (i: Integration) => Promise<string>;
+}) {
   const Icon = ICON[item.id] ?? Package;
   const [phase, setPhase] = useState<InstallPhase | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [mng, setMng] = useState<{ busy: "open" | "uninstall" | null; msg: { ok: boolean; text: string } | null }>({ busy: null, msg: null });
+  const managed = item.source === "flatpak" && !!item.flatpakId;
+
+  async function doOpen() {
+    setMng({ busy: "open", msg: null });
+    try { setMng({ busy: null, msg: { ok: true, text: await open(item) } }); }
+    catch (e) { setMng({ busy: null, msg: { ok: false, text: String(e) } }); }
+  }
+  async function doUninstall() {
+    if (!window.confirm(`Uninstall ${item.name}?`)) return;
+    setMng({ busy: "uninstall", msg: null });
+    try { setMng({ busy: null, msg: { ok: true, text: await uninstall(item) } }); }
+    catch (e) { setMng({ busy: null, msg: { ok: false, text: String(e) } }); }
+  }
   const status = statusOf(item, health);
   const meta = STATUS_META[status];
   // Install is offered whenever there's a flatpak path and flatpak itself is
@@ -295,7 +317,29 @@ function IntegrationCard({ item, health, install }: { item: Integration; health:
         </div>
 
         {item.detected ? (
-          <p className="mt-2xs truncate text-2xs text-content-muted">{item.detail || "Detected"}</p>
+          <div className="mt-2xs space-y-xs">
+            <p className="truncate text-2xs text-content-muted" title={item.detail}>{item.detail || "Detected"}</p>
+            {item.source && (
+              <span className="inline-block rounded bg-surface-sunken/70 px-xs py-[1px] text-[10px] font-medium uppercase tracking-wide text-content-subtle">
+                {item.source === "path" ? "binary" : item.source}
+              </span>
+            )}
+            {managed && (
+              <div className="flex items-center gap-xs">
+                <Button variant="solid" size="sm" disabled={mng.busy !== null} onClick={doOpen}>
+                  {mng.busy === "open" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Open
+                </Button>
+                <button
+                  onClick={doUninstall}
+                  disabled={mng.busy !== null}
+                  className="inline-flex items-center gap-xs rounded-md border border-border px-sm py-1 text-2xs font-medium text-content-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-50"
+                >
+                  {mng.busy === "uninstall" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />} Uninstall
+                </button>
+              </div>
+            )}
+            {mng.msg && <p className={cn("text-2xs", mng.msg.ok ? "text-success" : "text-danger")}>{mng.msg.text}</p>}
+          </div>
         ) : (
           <div className="mt-xs space-y-xs">
             {installing ? (

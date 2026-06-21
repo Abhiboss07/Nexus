@@ -24,6 +24,16 @@ pub struct Integration {
     pub doc_url: String,
     /// Flatpak app id when the tool can be installed one-click (user-level), else "".
     pub flatpak_id: String,
+    /// How it was detected: "path" | "flatpak" | "package" | "desktop" | "".
+    /// Drives the Open/Uninstall affordances (only flatpak installs are managed).
+    pub source: String,
+}
+
+impl Integration {
+    fn source(mut self, s: &str) -> Self {
+        self.source = s.into();
+        self
+    }
 }
 
 fn which(bin: &str) -> Option<String> {
@@ -115,6 +125,7 @@ fn entry(
         hint: hint.into(),
         doc_url: doc_url.into(),
         flatpak_id: flatpak_id.into(),
+        source: String::new(),
     }
 }
 
@@ -196,10 +207,11 @@ fn name_candidates(spec: &ToolSpec) -> Vec<String> {
 
 fn tool(spec: ToolSpec, ctx: &DetectCtx) -> Integration {
     let fid = spec.flatpak_id.unwrap_or("");
-    let mk = |detail: String| {
+    let mk = |detail: String, source: &str| {
         entry(
             spec.id, spec.name, spec.category, true, detail, spec.hint, spec.doc_url, fid,
         )
+        .source(source)
     };
 
     // 1. Executable on PATH (most authoritative — gives a version string).
@@ -212,16 +224,15 @@ fn tool(spec: ToolSpec, ctx: &DetectCtx) -> Integration {
             .ver
             .and_then(|(vbin, vargs)| version(vbin, vargs))
             .unwrap_or_else(|| path.clone());
-        return mk(if detail == path {
-            format!("{b} · {path}")
-        } else {
-            detail
-        });
+        return mk(
+            if detail == path { format!("{b} · {path}") } else { detail },
+            "path",
+        );
     }
     // 2. Flatpak app installed.
     if let Some(f) = spec.flatpak_id {
         if ctx.flatpaks.contains(f) {
-            return mk(format!("flatpak · {f}"));
+            return mk(format!("flatpak · {f}"), "flatpak");
         }
     }
     // 3. Installed package (binary name usually == package, e.g. openrgb).
@@ -229,11 +240,11 @@ fn tool(spec: ToolSpec, ctx: &DetectCtx) -> Integration {
         .into_iter()
         .find(|c| ctx.packages.contains(c))
     {
-        return mk(format!("package · {pkg}"));
+        return mk(format!("package · {pkg}"), "package");
     }
     // 4. Desktop entry present (GUI / AppImage / manual install, not on PATH).
     if name_candidates(&spec).iter().any(|c| ctx.desktops.contains(c)) {
-        return mk("installed".into());
+        return mk("installed".into(), "desktop");
     }
     entry(
         spec.id,
@@ -810,6 +821,34 @@ pub fn run_install(flatpak_id: &str) -> Result<(), String> {
     } else {
         Err(humanize_flatpak_error(&String::from_utf8_lossy(&out.stderr)))
     }
+}
+
+/// Uninstall a (user-scoped) flatpak app. Errors are humanized.
+pub fn uninstall_integration(flatpak_id: &str) -> Result<String, String> {
+    if flatpak_id.is_empty() || which("flatpak").is_none() {
+        return Err("Nothing to uninstall here.".into());
+    }
+    let out = std::process::Command::new("flatpak")
+        .args(["uninstall", "-y", "--user", "--noninteractive", flatpak_id])
+        .output()
+        .map_err(|e| format!("Couldn't launch flatpak: {e}"))?;
+    if out.status.success() {
+        Ok("Uninstalled.".into())
+    } else {
+        Err(humanize_flatpak_error(&String::from_utf8_lossy(&out.stderr)))
+    }
+}
+
+/// Launch a flatpak app (fire-and-forget).
+pub fn open_integration(flatpak_id: &str) -> Result<String, String> {
+    if flatpak_id.is_empty() || which("flatpak").is_none() {
+        return Err("This app can't be launched from Nexus.".into());
+    }
+    std::process::Command::new("flatpak")
+        .args(["run", flatpak_id])
+        .spawn()
+        .map_err(|e| format!("Couldn't launch: {e}"))?;
+    Ok("Launched.".into())
 }
 
 /// The installed version of a (user-scoped) flatpak app, for the "Installed ✓ v…"

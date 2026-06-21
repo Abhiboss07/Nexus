@@ -576,6 +576,22 @@ pub async fn install_integration(
     .map_err(|e| e.to_string())?
 }
 
+/// Uninstall a flatpak-managed integration (user-level).
+#[tauri::command]
+pub async fn uninstall_integration(flatpak_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::control::integrations::uninstall_integration(&flatpak_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Launch a flatpak-managed integration.
+#[tauri::command]
+pub fn open_integration(flatpak_id: String) -> Result<String, String> {
+    crate::control::integrations::open_integration(&flatpak_id)
+}
+
 /// Flatpak readiness (is flatpak installed, is the Flathub remote configured) so
 /// the UI can prompt before an install can fail.
 #[tauri::command]

@@ -254,6 +254,12 @@ export const getIntegrations = () => invoke<Integration[]>("get_integrations");
 /** One-click flatpak install (user-level). Returns the install log. */
 export const installIntegration = (flatpakId: string) =>
   invoke<string>("install_integration", { flatpakId });
+/** Uninstall a flatpak-managed integration. */
+export const uninstallIntegration = (flatpakId: string) =>
+  invoke<string>("uninstall_integration", { flatpakId });
+/** Launch a flatpak-managed integration. */
+export const openIntegration = (flatpakId: string) =>
+  invoke<string>("open_integration", { flatpakId });
 /** Is flatpak installed and is the Flathub remote configured? */
 export const flatpakHealth = () => invoke<FlatpakHealth>("flatpak_health");
 /** One-click "Add Flathub" (user-scoped, idempotent). */
