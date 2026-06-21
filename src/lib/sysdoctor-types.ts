@@ -13,6 +13,12 @@ export interface Finding {
   unit: string | null;
   /** True for --user units (no pkexec needed). */
   userScope: boolean;
+  /** Plain-language cause. Optional (older payloads / demo data may omit). */
+  why?: string;
+  /** Consequence in human terms. */
+  impact?: string;
+  /** Check confidence, 0–100. */
+  confidence?: number;
 }
 
 export interface ScanCategory {

@@ -50,6 +50,12 @@ pub struct Finding {
     pub unit: Option<String>,
     /// True for `--user` units (toggled via `systemctl --user`, no pkexec).
     pub user_scope: bool,
+    /// Plain-language cause ("why it happened"). Auto-filled if left empty.
+    pub why: String,
+    /// Consequence in human terms ("how it affects you"). Auto-filled.
+    pub impact: String,
+    /// How sure the check is, 0–100. Auto-filled to a sensible default.
+    pub confidence: u8,
 }
 
 fn f(severity: &str, title: &str, detail: impl Into<String>, fix: &str) -> Finding {
@@ -61,6 +67,9 @@ fn f(severity: &str, title: &str, detail: impl Into<String>, fix: &str) -> Findi
         kind: String::new(),
         unit: None,
         user_scope: false,
+        why: String::new(),
+        impact: String::new(),
+        confidence: 0,
     }
 }
 
@@ -75,6 +84,46 @@ impl Finding {
         self.kind = kind.into();
         self
     }
+    /// Attach an explicit explanation. Overrides the auto-filled defaults.
+    fn explain(mut self, why: &str, impact: &str, confidence: u8) -> Self {
+        self.why = why.into();
+        self.impact = impact.into();
+        self.confidence = confidence;
+        self
+    }
+}
+
+/// Fill in why/impact/confidence for any finding that didn't set them, so the UI
+/// can ALWAYS show "what / why / impact / fix / confidence" — never a raw,
+/// unexplained diagnostic. Heuristics key off severity + kind.
+fn enrich(mut x: Finding) -> Finding {
+    if x.confidence == 0 {
+        // Direct probes are near-certain; heuristic counts a touch lower.
+        x.confidence = match x.kind.as_str() {
+            "journal" => 75,
+            _ => 92,
+        };
+    }
+    if x.impact.is_empty() {
+        x.impact = match x.severity.as_str() {
+            "critical" => "Can affect system stability or data — worth addressing soon.",
+            "warning" => "Minor — worth a look, but not urgent.",
+            "info" => "Informational — no action needed.",
+            _ => "Healthy — nothing to do here.",
+        }
+        .into();
+    }
+    if x.why.is_empty() {
+        x.why = match x.kind.as_str() {
+            "service" => "A systemd unit failed to start or exited unexpectedly.".into(),
+            "journal" => "Background components logged error-level messages this boot; many are benign and repeat.".into(),
+            "coredump" => "An application crashed and the kernel saved a core dump.".into(),
+            "package" => "The package database has orphaned or unsatisfied entries.".into(),
+            _ if x.severity == "ok" => "This check passed.".into(),
+            _ => String::new(),
+        };
+    }
+    x
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +139,7 @@ pub struct ScanCategory {
 
 impl ScanCategory {
     fn new(id: &str, label: &str, findings: Vec<Finding>) -> Self {
+        let findings: Vec<Finding> = findings.into_iter().map(enrich).collect();
         let status = worst(&findings);
         let issues = findings
             .iter()
@@ -212,14 +262,21 @@ fn scan_firmware() -> Option<Finding> {
     if n == 0 {
         return None;
     }
-    Some(f(
-        "warning",
-        "Firmware (ACPI/BIOS)",
-        format!(
-            "{n} ACPI/firmware complaint(s) from the kernel this boot — cosmetic on most laptops; a BIOS update may clear them"
+    Some(
+        f(
+            "warning",
+            "Firmware (ACPI/BIOS)",
+            format!(
+                "{n} ACPI/firmware complaint(s) from the kernel this boot — cosmetic on most laptops; a BIOS update may clear them"
+            ),
+            "",
+        )
+        .explain(
+            "Your laptop's OEM firmware (BIOS/ACPI tables) doesn't perfectly match what the Linux kernel expects, so the kernel logs a warning and works around it.",
+            "No measurable performance or stability impact — purely cosmetic log noise. An optional BIOS update may remove it.",
+            95,
         ),
-        "",
-    ))
+    )
 }
 
 fn scan_storage_health() -> ScanCategory {

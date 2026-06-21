@@ -83,6 +83,13 @@ const SEV_BADGE: Record<Severity, "success" | "neutral" | "warning" | "danger"> 
   critical: "danger",
 };
 
+const RISK_LABEL: Record<Severity, string> = {
+  ok: "No",
+  info: "Low",
+  warning: "Moderate",
+  critical: "High",
+};
+
 export default function DoctorPage() {
   const [phase, setPhase] = useState<"idle" | "scanning" | "done">("idle");
   const [health, setHealth] = useState<HealthCheck | null>(null);
@@ -289,6 +296,22 @@ const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) 
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium text-content">{f.title}</p>
                       <p className="text-2xs text-content-muted">{f.detail}</p>
+                      {f.severity !== "ok" && (f.why || f.impact) && (
+                        <div className="mt-xs space-y-2xs rounded-md border border-border-subtle/60 bg-surface-sunken/30 p-xs">
+                          {f.why && (
+                            <p className="text-2xs text-content-muted"><span className="font-medium text-content-subtle">Why: </span>{f.why}</p>
+                          )}
+                          {f.impact && (
+                            <p className="text-2xs text-content-muted"><span className="font-medium text-content-subtle">Impact: </span>{f.impact}</p>
+                          )}
+                          <div className="flex items-center gap-sm pt-2xs">
+                            <span className={cn("rounded px-xs py-[1px] text-[10px] font-semibold uppercase tracking-wide", fst.cls)}>{RISK_LABEL[f.severity]} risk</span>
+                            {f.confidence != null && (
+                              <span className="text-[10px] text-content-subtle">{f.confidence}% confidence</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {f.fix && (
                         <button onClick={() => navigator.clipboard?.writeText(f.fix)} className="mt-2xs flex items-center gap-xs text-2xs text-accent-strong hover:underline" title="Copy fix">
                           <Copy className="h-2.5 w-2.5" /> {f.fix}
