@@ -757,6 +757,83 @@ pub async fn gaming_trends(
         .map_err(|e| e.to_string())?
 }
 
+/* ----- Notification Center (persistent event hub) ----- */
+
+/// Add a notification, persist it, and emit `notification://new` so the bell +
+/// drawer update live. Both frontend `notify()` calls and backend events
+/// (profile auto-switch, etc.) funnel through here.
+#[tauri::command]
+pub async fn notif_add(
+    app: tauri::AppHandle,
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    kind: String,
+    severity: String,
+    title: String,
+    body: String,
+) -> Result<crate::notifications::Notification, String> {
+    let store = store.inner().clone();
+    let n = tauri::async_runtime::spawn_blocking(move || {
+        store.add(&kind, &severity, &title, &body)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    use tauri::Emitter;
+    let _ = app.emit("notification://new", &n);
+    Ok(n)
+}
+
+#[tauri::command]
+pub async fn notif_list(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    limit: Option<i64>,
+) -> Result<Vec<crate::notifications::Notification>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.list(limit.unwrap_or(100)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_unread(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<i64, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.unread_count())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_mark_read(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    id: i64,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_read(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_mark_all_read(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_all_read())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_clear(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.clear())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /* ----- Battery charge-limit evidence (Task 4 — hardware truth) ----- */
 
 #[tauri::command]

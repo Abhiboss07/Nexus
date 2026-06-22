@@ -11,6 +11,7 @@ mod diagnostics;
 mod gaming;
 mod linux_hub;
 mod logging;
+mod notifications;
 mod optimizer;
 #[cfg(test)]
 mod runtime_smoke;
@@ -84,6 +85,15 @@ pub fn run() {
             TelemetryStore::in_memory().expect("in-memory telemetry store")
         }
     });
+    // ----- Notification Center store -----
+    let notif_store = Arc::new(
+        notifications::NotificationStore::open(&logging::data_dir().join("notifications.db"))
+            .unwrap_or_else(|e| {
+                logging::line("WARN", &format!("Notification store on-disk unavailable ({e}); using in-memory."));
+                notifications::NotificationStore::in_memory().expect("in-memory notification store")
+            }),
+    );
+
     // Stamp any session left open by a prior crash, then open this run's session.
     let _ = store.close_stale_sessions();
     match store.begin_session(env!("CARGO_PKG_VERSION"), &hostname()) {
@@ -106,6 +116,7 @@ pub fn run() {
         .manage(state)
         .manage(control)
         .manage(store.clone())
+        .manage(notif_store.clone())
         .manage(Mutex::new(ProcessMonitor::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
@@ -234,6 +245,12 @@ pub fn run() {
             commands::gaming_session_series,
             commands::gaming_fps_analysis,
             commands::gaming_trends,
+            commands::notif_add,
+            commands::notif_list,
+            commands::notif_unread,
+            commands::notif_mark_read,
+            commands::notif_mark_all_read,
+            commands::notif_clear,
         ])
         .setup(move |app| {
             // ----- System tray -----
@@ -355,6 +372,13 @@ pub fn run() {
                         if last_applied.as_deref() != Some(id.as_str()) {
                             let _ = svc
                                 .apply_nexus_profile(&id, control::rgb::RgbSource::Automation);
+                            notifications::push(
+                                &auto_handle,
+                                "profile",
+                                "success",
+                                "Profile auto-switched",
+                                &format!("Applied the “{id}” profile automatically."),
+                            );
                             last_applied = Some(id);
                         }
                     } else {
