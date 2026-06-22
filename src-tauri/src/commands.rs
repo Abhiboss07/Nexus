@@ -705,6 +705,58 @@ pub async fn telemetry_stats(
         .map_err(|e| e.to_string())?
 }
 
+/* ----- Gaming Intelligence v1 (analysis over the persistent store) ----- */
+
+/// Full per-session analytics (avgs/peaks/mins, power, FPS stats, throttle %).
+#[tauri::command]
+pub async fn gaming_session_analytics(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::telemetry::store::SessionAnalytics>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_analytics(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Per-sample timeline for one session (FPS / thermal history charts).
+#[tauri::command]
+pub async fn gaming_session_series(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+    max_points: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::HistoryRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_series(id, max_points.unwrap_or(600)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// "Why FPS dropped" — limiter/bottleneck analysis for a session.
+#[tauri::command]
+pub async fn gaming_fps_analysis(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::gaming::FpsAnalysis>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::gaming::fps_analysis(&store, id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Cross-session performance trends (regressions / improvements vs the recent
+/// baseline).
+#[tauri::command]
+pub async fn gaming_trends(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    limit: Option<i64>,
+) -> Result<crate::gaming::TrendReport, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::gaming::trends(&store, limit.unwrap_or(10)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /* ----- Battery charge-limit evidence (Task 4 — hardware truth) ----- */
 
 #[tauri::command]

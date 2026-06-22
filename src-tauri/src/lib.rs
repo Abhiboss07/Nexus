@@ -8,6 +8,7 @@
 mod commands;
 mod control;
 mod diagnostics;
+mod gaming;
 mod linux_hub;
 mod logging;
 mod optimizer;
@@ -229,6 +230,10 @@ pub fn run() {
             commands::telemetry_session_summary,
             commands::telemetry_history,
             commands::telemetry_stats,
+            commands::gaming_session_analytics,
+            commands::gaming_session_series,
+            commands::gaming_fps_analysis,
+            commands::gaming_trends,
         ])
         .setup(move |app| {
             // ----- System tray -----

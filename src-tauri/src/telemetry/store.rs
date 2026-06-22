@@ -101,6 +101,40 @@ pub struct StoreStats {
     pub db_bytes: i64,
 }
 
+/// Full per-session aggregate set — the substrate Gaming Intelligence reasons
+/// over (session analytics, FPS stats, trend comparison, "why FPS dropped").
+/// FPS fields are 0 until a frame-rate source records into the `fps` column.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAnalytics {
+    pub session_id: i64,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub duration_ms: i64,
+    pub samples: i64,
+    pub cpu_usage_avg: f64,
+    pub cpu_usage_max: f64,
+    pub gpu_usage_avg: f64,
+    pub gpu_usage_max: f64,
+    pub mem_usage_avg: f64,
+    pub mem_usage_max: f64,
+    pub cpu_temp_avg: f64,
+    pub cpu_temp_max: f64,
+    pub gpu_temp_avg: f64,
+    pub gpu_temp_max: f64,
+    /// Avg combined CPU+GPU package power (W).
+    pub power_avg_w: f64,
+    /// Number of samples that actually carried a frame rate.
+    pub fps_samples: i64,
+    pub fps_avg: f64,
+    pub fps_min: f64,
+    pub fps_max: f64,
+    /// Mean of the worst 1% of frames — the standard "1% low" gaming metric.
+    pub fps_low1pct: f64,
+    /// Share of samples at/over the throttle threshold (≥90°C CPU or GPU), %.
+    pub throttle_pct: f64,
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -457,6 +491,146 @@ impl TelemetryStore {
         Ok(self.sessions(i64::MAX)?.into_iter().find(|s| s.id == id))
     }
 
+    /// Raw per-sample timeline for one session (down-sampled to ~`max_points`),
+    /// independent of the retention window — feeds FPS/thermal history charts.
+    pub fn session_series(&self, session_id: i64, max_points: i64) -> Result<Vec<HistoryRow>, String> {
+        let max_points = max_points.clamp(10, 5000);
+        let conn = self.lock()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM samples WHERE session_id = ?1",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let stride = (count / max_points).max(1);
+        let mut stmt = conn
+            .prepare(
+                "SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage, fps
+                   FROM (SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage, fps,
+                                ROW_NUMBER() OVER (ORDER BY ts) AS rn
+                           FROM samples WHERE session_id = ?1)
+                  WHERE (rn - 1) % ?2 = 0
+                  ORDER BY ts",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![session_id, stride], |r| {
+                let cpu_t = r.get::<_, Option<f64>>(2)?.unwrap_or(0.0);
+                let gpu_t = r.get::<_, Option<f64>>(4)?.unwrap_or(0.0);
+                let fps = r.get::<_, Option<f64>>(6)?.unwrap_or(0.0);
+                Ok(HistoryRow {
+                    ts: r.get(0)?,
+                    cpu_usage: r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
+                    cpu_temp: cpu_t,
+                    cpu_temp_max: cpu_t,
+                    gpu_usage: r.get::<_, Option<f64>>(3)?.unwrap_or(0.0),
+                    gpu_temp: gpu_t,
+                    gpu_temp_max: gpu_t,
+                    mem_usage: r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                    fps,
+                    fps_max: fps,
+                    resolution: "raw".into(),
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
+    /// Full aggregate analytics for one session (SQL-computed avgs/peaks/mins +
+    /// throttle share + FPS stats incl. the 1% low). `None` if the session has no
+    /// samples. This is the per-session substrate the gaming-intelligence layer
+    /// interprets — all heavy math stays in the store/SQL, not the UI.
+    pub fn session_analytics(&self, session_id: i64) -> Result<Option<SessionAnalytics>, String> {
+        let now = now_ms();
+        let conn = self.lock()?;
+
+        let meta: Option<(i64, Option<i64>)> = conn
+            .query_row(
+                "SELECT started_at, ended_at FROM sessions WHERE id = ?1",
+                params![session_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        let Some((started_at, ended_at)) = meta else {
+            return Ok(None);
+        };
+
+        let mut a = conn
+            .query_row(
+                "SELECT COUNT(*),
+                        AVG(cpu_usage), MAX(cpu_usage),
+                        AVG(gpu_usage), MAX(gpu_usage),
+                        AVG(mem_usage), MAX(mem_usage),
+                        AVG(cpu_temp),  MAX(cpu_temp),
+                        AVG(gpu_temp),  MAX(gpu_temp),
+                        AVG(COALESCE(cpu_power,0) + COALESCE(gpu_power,0)),
+                        SUM(CASE WHEN fps IS NOT NULL THEN 1 ELSE 0 END),
+                        AVG(fps), MIN(fps), MAX(fps),
+                        SUM(CASE WHEN cpu_temp >= 90 OR gpu_temp >= 90 THEN 1 ELSE 0 END)
+                   FROM samples WHERE session_id = ?1",
+                params![session_id],
+                |r| {
+                    Ok(SessionAnalytics {
+                        session_id,
+                        started_at,
+                        ended_at,
+                        duration_ms: ended_at.unwrap_or(now) - started_at,
+                        samples: r.get(0)?,
+                        cpu_usage_avg: r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
+                        cpu_usage_max: r.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                        gpu_usage_avg: r.get::<_, Option<f64>>(3)?.unwrap_or(0.0),
+                        gpu_usage_max: r.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
+                        mem_usage_avg: r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                        mem_usage_max: r.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
+                        cpu_temp_avg: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
+                        cpu_temp_max: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
+                        gpu_temp_avg: r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+                        gpu_temp_max: r.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+                        power_avg_w: r.get::<_, Option<f64>>(11)?.unwrap_or(0.0),
+                        fps_samples: r.get::<_, Option<i64>>(12)?.unwrap_or(0),
+                        fps_avg: r.get::<_, Option<f64>>(13)?.unwrap_or(0.0),
+                        fps_min: r.get::<_, Option<f64>>(14)?.unwrap_or(0.0),
+                        fps_max: r.get::<_, Option<f64>>(15)?.unwrap_or(0.0),
+                        fps_low1pct: 0.0,
+                        throttle_pct: 0.0,
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())?;
+
+        if a.samples == 0 {
+            return Ok(None);
+        }
+        let throttle_count: i64 = conn
+            .query_row(
+                "SELECT SUM(CASE WHEN cpu_temp >= 90 OR gpu_temp >= 90 THEN 1 ELSE 0 END)
+                   FROM samples WHERE session_id = ?1",
+                params![session_id],
+                |r| r.get::<_, Option<i64>>(0).map(|v| v.unwrap_or(0)),
+            )
+            .map_err(|e| e.to_string())?;
+        a.throttle_pct = (throttle_count as f64) / (a.samples as f64) * 100.0;
+
+        // 1% low: mean of the worst 1% of frames (min 1 frame).
+        if a.fps_samples > 0 {
+            let n = (a.fps_samples / 100).max(1);
+            a.fps_low1pct = conn
+                .query_row(
+                    "SELECT AVG(fps) FROM (SELECT fps FROM samples
+                       WHERE session_id = ?1 AND fps IS NOT NULL
+                       ORDER BY fps ASC LIMIT ?2)",
+                    params![session_id, n],
+                    |r| r.get::<_, Option<f64>>(0).map(|v| v.unwrap_or(0.0)),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(Some(a))
+    }
+
     /// Time-series history for `[since, until]`. Picks resolution automatically:
     /// ranges within raw retention return real samples (down-sampled to roughly
     /// `max_points`); longer ranges return hourly aggregates.
@@ -733,6 +907,47 @@ mod tests {
         store.aggregate().unwrap();
         let after = store.history(now_ms() - AGG_RETENTION_MS, now_ms(), 1000).unwrap();
         assert_eq!(again.len(), after.len());
+    }
+
+    #[test]
+    fn session_analytics_aggregates_everything() {
+        let store = TelemetryStore::in_memory().unwrap();
+        let sid = store.begin_session("v", "h").unwrap();
+        let base = now_ms() as u64;
+        // 100 samples; last few are hot (≥90°C) to exercise throttle_pct.
+        for i in 0..100 {
+            let cpu_t = if i >= 95 { 92.0 } else { 60.0 };
+            store
+                .record(sid, &snap(base + i * 1000, cpu_t, 55.0), Some(100.0 + (i % 20) as f32))
+                .unwrap();
+        }
+        let a = store.session_analytics(sid).unwrap().unwrap();
+        assert_eq!(a.samples, 100);
+        assert!(a.cpu_usage_avg > 0.0);
+        assert!(a.power_avg_w > 0.0); // cpu_power 25 + gpu_power 45
+        assert_eq!(a.fps_samples, 100);
+        assert!(a.fps_avg > 0.0);
+        assert!(a.fps_low1pct > 0.0);
+        // 5 of 100 samples were ≥90°C.
+        assert!((a.throttle_pct - 5.0).abs() < 0.01);
+        // Unknown session → None.
+        assert!(store.session_analytics(999).unwrap().is_none());
+    }
+
+    #[test]
+    fn session_series_returns_session_scoped_timeline() {
+        let store = TelemetryStore::in_memory().unwrap();
+        let a = store.begin_session("v", "h").unwrap();
+        let b = store.begin_session("v", "h").unwrap();
+        let base = now_ms() as u64;
+        for i in 0..20 {
+            store.record(a, &snap(base + i * 1000, 50.0, 40.0), None).unwrap();
+        }
+        for i in 0..5 {
+            store.record(b, &snap(base + i * 1000, 50.0, 40.0), None).unwrap();
+        }
+        assert_eq!(store.session_series(a, 1000).unwrap().len(), 20);
+        assert_eq!(store.session_series(b, 1000).unwrap().len(), 5);
     }
 
     #[test]
