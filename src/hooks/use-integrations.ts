@@ -32,7 +32,7 @@ const d = (
 });
 
 const DEMO: Integration[] = [
-  d("mangohud", "MangoHud", "gaming", false, "", "sudo pacman -S mangohud", "https://github.com/flightlessmango/MangoHud"),
+  d("mangohud", "MangoHud", "gaming", false, "", "sudo pacman -S mangohud lib32-mangohud", "https://github.com/flightlessmango/MangoHud"),
   d("gamescope", "Gamescope", "gaming", false, "", "sudo pacman -S gamescope", "https://github.com/ValveSoftware/gamescope"),
   d("gamemode", "GameMode", "gaming", true, "gamemode version: v1.8.2", "", "https://github.com/FeralInteractive/gamemode"),
   d("openrgb", "OpenRGB", "hardware", false, "", "sudo pacman -S openrgb", "https://openrgb.org", "org.openrgb.OpenRGB"),

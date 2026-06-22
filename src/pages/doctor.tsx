@@ -43,8 +43,30 @@ import type { HealthCheck, Permissions } from "@/lib/system-types";
 import type { ScanCategory, Severity, SystemScan, FileEntry } from "@/lib/sysdoctor-types";
 import { formatBytes } from "@/lib/format";
 import { useRenderCount } from "@/components/dev/render-count";
+import { notify } from "@/store/notification-store";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
+
+/** Raise a notification summarizing a completed Doctor scan. */
+function notifyScanDone(s: SystemScan | null) {
+  if (!s) {
+    notify({ kind: "doctor", severity: "info", title: "Doctor scan complete", body: "No scan data." });
+    return;
+  }
+  const issues = s.categories
+    .flatMap((c) => c.findings)
+    .filter((f) => f.severity === "warning" || f.severity === "high" || f.severity === "critical");
+  const serious = issues.filter((f) => f.severity === "high" || f.severity === "critical").length;
+  notify({
+    kind: "doctor",
+    severity: serious > 0 ? "warning" : "success",
+    title: "Doctor scan complete",
+    body:
+      issues.length === 0
+        ? `Health ${s.score}/100 — all clear.`
+        : `Health ${s.score}/100 · ${issues.length} item(s) need attention.`,
+  });
+}
 
 const DEMO_HEALTH: HealthCheck = {
   passed: 8,
@@ -70,8 +92,10 @@ const DEMO_PERMS: Permissions = {
 const STATUS: Record<string, { icon: LucideIcon; cls: string }> = {
   ok: { icon: CheckCircle2, cls: "text-success" },
   info: { icon: Info, cls: "text-info" },
+  low: { icon: Info, cls: "text-content-muted" },
   warn: { icon: AlertTriangle, cls: "text-warning" },
   warning: { icon: AlertTriangle, cls: "text-warning" },
+  high: { icon: AlertTriangle, cls: "text-danger" },
   fail: { icon: XCircle, cls: "text-danger" },
   critical: { icon: XCircle, cls: "text-danger" },
 };
@@ -79,15 +103,19 @@ const STATUS: Record<string, { icon: LucideIcon; cls: string }> = {
 const SEV_BADGE: Record<Severity, "success" | "neutral" | "warning" | "danger"> = {
   ok: "success",
   info: "neutral",
+  low: "neutral",
   warning: "warning",
+  high: "danger",
   critical: "danger",
 };
 
 const RISK_LABEL: Record<Severity, string> = {
   ok: "No",
-  info: "Low",
+  info: "Info",
+  low: "Low",
   warning: "Moderate",
-  critical: "High",
+  high: "High",
+  critical: "Critical",
 };
 
 export default function DoctorPage() {
@@ -113,12 +141,14 @@ export default function DoctorPage() {
       setHealth(h);
       setPerms(p);
       setScan(s);
+      notifyScanDone(s);
     } else {
       await new Promise((r) => setTimeout(r, 700));
       if (id !== runId.current) return;
       setHealth(DEMO_HEALTH);
       setPerms(DEMO_PERMS);
       setScan(null);
+      notify({ kind: "doctor", severity: "info", title: "Doctor scan complete", body: "Demo — no real issues." });
     }
     setPhase("done");
   }
@@ -252,7 +282,10 @@ export default function DoctorPage() {
 
 const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) {
   useRenderCount("DoctorCard");
-  const [open, setOpen] = useState(cat.status === "critical" || cat.status === "warning");
+  // Auto-expand only categories with genuinely attention-worthy findings.
+  const [open, setOpen] = useState(
+    cat.status === "critical" || cat.status === "high" || cat.status === "warning",
+  );
   const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -318,7 +351,7 @@ const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) 
                         </button>
                       )}
                       {/* Per-finding actions */}
-                      {(f.kind === "service" && f.unit) || f.severity === "warning" || f.severity === "info" ? (
+                      {(f.kind === "service" && f.unit) || f.severity !== "ok" ? (
                         <div className="mt-xs flex flex-wrap gap-xs">
                           {f.kind === "service" && f.unit && (
                             <>
@@ -327,7 +360,8 @@ const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) 
                               <FAction icon={RotateCw} label="Restart" onClick={() => restart(f.unit!, f.userScope)} busy={busy === f.unit} />
                             </>
                           )}
-                          {(f.severity === "warning" || f.severity === "info") && (
+                          {/* Low-impact, noisy findings can be dismissed. */}
+                          {(f.severity === "info" || f.severity === "low" || f.severity === "warning") && (
                             <FAction icon={EyeOff} label="Ignore" onClick={() => setIgnored((s) => new Set(s).add(f.title))} />
                           )}
                         </div>

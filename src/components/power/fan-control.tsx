@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Fan,
@@ -26,8 +26,10 @@ import { Segmented } from "@/components/ui/segmented";
 import { Slider } from "@/components/ui/slider";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { FanCurveEditor, curveWarnings, curvePctAt } from "@/components/power/fan-curve-editor";
+import { useShallow } from "zustand/react/shallow";
 import { useThermal } from "@/hooks/use-thermal";
-import { useFans, useThermals, useTelemetrySource } from "@/hooks/use-telemetry";
+import { useTelemetrySource } from "@/hooks/use-telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { formatControlError } from "@/hooks/use-control";
 import {
   fanSetCurve,
@@ -53,15 +55,23 @@ const PRESETS: { name: string; icon: LucideIcon; profile: FanProfile }[] = [
 
 export function FanControl() {
   const { fanInfo } = useThermal();
-  const fans = useFans();
-  const thermals = useThermals();
-  const source = useTelemetrySource();
-  const live = source === "live";
+  const live = useTelemetrySource() === "live";
+
+  // Subscribe only to the *integer* live values we display, so the (heavy) curve
+  // editor re-renders when an RPM/temp actually changes — not on every raw-float
+  // telemetry tick.
+  const liveFan = useTelemetryStore(
+    useShallow((s) => ({
+      cpuRpm: s.snapshot?.fans?.find((f) => f.label === "CPU Fan")?.rpm ?? null,
+      gpuRpm: s.snapshot?.fans?.find((f) => f.label === "GPU Fan")?.rpm ?? null,
+      cpuC: s.snapshot?.thermals?.cpuC != null ? Math.round(s.snapshot.thermals.cpuC) : null,
+    })),
+  );
 
   const caps = fanInfo?.capabilities;
-  const cpuTemp = thermals?.cpuC ?? 60;
-  const cpuRpm = fans.find((f) => f.label === "CPU Fan")?.rpm ?? fanInfo?.cpuRpm ?? 0;
-  const gpuRpm = fans.find((f) => f.label === "GPU Fan")?.rpm ?? fanInfo?.gpuRpm ?? 0;
+  const cpuTemp = liveFan.cpuC ?? 60;
+  const cpuRpm = liveFan.cpuRpm ?? fanInfo?.cpuRpm ?? 0;
+  const gpuRpm = liveFan.gpuRpm ?? fanInfo?.gpuRpm ?? 0;
 
   const [curve, setCurve] = useState<CurvePoint[]>([]);
   const [thermalProfile, setThermalProfile] = useState<ThermalProfile>("normal");
@@ -97,6 +107,12 @@ export function FanControl() {
 
   const warnings = curveWarnings(curve);
   const curveUnsafe = warnings.length > 0;
+
+  // Stable so the memoized FanCurveEditor doesn't redraw on unrelated renders.
+  const onCurveChange = useCallback((c: CurvePoint[]) => {
+    setCurve(c);
+    setActivePreset(null);
+  }, []);
 
   async function run(fn: () => Promise<{ message: string }>, okMsg?: string) {
     setBusy(true);
@@ -209,7 +225,7 @@ export function FanControl() {
                 <Badge variant="neutral" size="sm">{curve.length}/{caps.maxCurvePoints} pts</Badge>
               </div>
               <div className={cn("rounded-xl border border-border bg-surface-sunken/40 p-sm", maxFan && "pointer-events-none opacity-40")}>
-                <FanCurveEditor points={curve} onChange={(c) => { setCurve(c); setActivePreset(null); }} currentTemp={cpuTemp} maxPoints={caps.maxCurvePoints} disabled={maxFan} />
+                <FanCurveEditor points={curve} onChange={onCurveChange} currentTemp={cpuTemp} maxPoints={caps.maxCurvePoints} disabled={maxFan} />
               </div>
               {warnings.length > 0 && (
                 <div className="mt-sm space-y-2xs">

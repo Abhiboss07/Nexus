@@ -1,5 +1,6 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { useShallow } from "zustand/react/shallow";
 import { useNavigate } from "react-router-dom";
 import {
   Cpu,
@@ -35,16 +36,9 @@ import { Meter, meterTone } from "@/components/ui/progress";
 import { Sparkline } from "@/components/ui/sparkline";
 import { stagger, fadeUp } from "@/lib/motion";
 import { formatBytes } from "@/lib/format";
-import {
-  useCpu,
-  useGpu,
-  useMemory,
-  useBattery,
-  useThermals,
-  useHistorySeries,
-  useTelemetrySource,
-} from "@/hooks/use-telemetry";
+import { useTelemetrySource } from "@/hooks/use-telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import { useChartHistory } from "@/hooks/use-chart-history";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
 import {
   useHealthScore,
@@ -64,7 +58,7 @@ import {
 } from "@/lib/ipc";
 import type { GpuInfo } from "@/lib/gpu-types";
 import type { LauncherStatus } from "@/lib/games-types";
-import type { BatteryReport } from "@/lib/battery-types";
+import { isCharging, type BatteryReport } from "@/lib/battery-types";
 import type { Finding } from "@/lib/sysdoctor-types";
 import { useRenderCount } from "@/components/dev/render-count";
 import { cn } from "@/lib/cn";
@@ -152,22 +146,41 @@ export default function DashboardPage() {
  */
 const LiveMetrics = memo(function LiveMetrics() {
   useRenderCount("LiveMetrics");
-  const cpu = useCpu();
-  const gpu = useGpu();
-  const mem = useMemory();
-  const thermals = useThermals();
-  const cpuSeries = useHistorySeries("cpuUsage");
-  const gpuSeries = useHistorySeries("gpuUsage");
-  const memSeries = useHistorySeries("memUsage");
-  const tempSeries = useHistorySeries("cpuTemp");
-  const cpuTemp = thermals?.cpuC ?? cpu?.temperatureC ?? 0;
+  // Sparkline data batched to ≤1Hz (and frozen when the window is hidden); the
+  // displayed values come from a SHALLOW selector of already-rounded/formatted
+  // primitives, so a card re-renders only when a *shown* figure changes — not on
+  // every sub-integer telemetry tick.
+  const hist = useChartHistory();
+  const cpuSeries = useMemo(() => hist.map((p) => p.cpuUsage), [hist]);
+  const gpuSeries = useMemo(() => hist.map((p) => p.gpuUsage), [hist]);
+  const memSeries = useMemo(() => hist.map((p) => p.memUsage), [hist]);
+  const tempSeries = useMemo(() => hist.map((p) => p.cpuTemp), [hist]);
+
+  const d = useTelemetryStore(
+    useShallow((s) => {
+      const cpu = s.snapshot?.cpu;
+      const gpu = s.snapshot?.gpu;
+      const mem = s.snapshot?.memory;
+      const cpuTemp = Math.round(s.snapshot?.thermals?.cpuC ?? cpu?.temperatureC ?? 0);
+      return {
+        cpuUsage: cpu ? String(Math.round(cpu.usage)) : "—",
+        cpuFooter: cpu ? `${cpu.model.split(" ").slice(0, 3).join(" ")} · ${(cpu.frequencyMhz / 1000).toFixed(1)} GHz` : "Detecting…",
+        gpuUsage: gpu ? String(Math.round(gpu.usage)) : "—",
+        gpuFooter: gpu ? `${gpu.name.replace("NVIDIA GeForce ", "")} · ${gpu.temperatureC?.toFixed(0) ?? "—"}°C` : "No GPU",
+        memValue: mem ? formatBytes(mem.usedBytes, 1).replace(" GB", "") : "—",
+        memUnit: mem ? `/ ${formatBytes(mem.totalBytes, 0)}` : "",
+        memFooter: mem ? `${Math.round(mem.usage)}% used` : "Detecting…",
+        cpuTemp,
+      };
+    }),
+  );
 
   return (
     <>
-      <MetricCard icon={Cpu} label="CPU" value={cpu ? cpu.usage.toFixed(0) : "—"} unit="%" trend={trend(cpuSeries)} tone="accent" series={cpuSeries} footer={cpu ? `${cpu.model.split(" ").slice(0, 3).join(" ")} · ${(cpu.frequencyMhz / 1000).toFixed(1)} GHz` : "Detecting…"} />
-      <MetricCard icon={CircuitBoard} label="GPU" value={gpu ? gpu.usage.toFixed(0) : "—"} unit="%" trend={trend(gpuSeries)} tone="info" series={gpuSeries} footer={gpu ? `${gpu.name.replace("NVIDIA GeForce ", "")} · ${gpu.temperatureC?.toFixed(0) ?? "—"}°C` : "No GPU"} />
-      <MetricCard icon={MemoryStick} label="Memory" value={mem ? formatBytes(mem.usedBytes, 1).replace(" GB", "") : "—"} unit={mem ? `/ ${formatBytes(mem.totalBytes, 0)}` : ""} trend={trend(memSeries)} tone="success" series={memSeries} footer={mem ? `${mem.usage.toFixed(0)}% used` : "Detecting…"} />
-      <MetricCard icon={Thermometer} label="CPU Thermals" value={cpuTemp ? cpuTemp.toFixed(0) : "—"} unit="°C" trend={trend(tempSeries)} tone={cpuTemp > 80 ? "danger" : cpuTemp > 70 ? "warning" : "success"} series={tempSeries} footer="Package temperature" />
+      <MetricCard icon={Cpu} label="CPU" value={d.cpuUsage} unit="%" trend={trend(cpuSeries)} tone="accent" series={cpuSeries} footer={d.cpuFooter} />
+      <MetricCard icon={CircuitBoard} label="GPU" value={d.gpuUsage} unit="%" trend={trend(gpuSeries)} tone="info" series={gpuSeries} footer={d.gpuFooter} />
+      <MetricCard icon={MemoryStick} label="Memory" value={d.memValue} unit={d.memUnit} trend={trend(memSeries)} tone="success" series={memSeries} footer={d.memFooter} />
+      <MetricCard icon={Thermometer} label="CPU Thermals" value={d.cpuTemp ? String(d.cpuTemp) : "—"} unit="°C" trend={trend(tempSeries)} tone={d.cpuTemp > 80 ? "danger" : d.cpuTemp > 70 ? "warning" : "success"} series={tempSeries} footer="Package temperature" />
     </>
   );
 });
@@ -351,8 +364,28 @@ const QuickActions = memo(function QuickActions({ navigate, live, setPower }: { 
 
 const GpuCenter = memo(function GpuCenter({ live }: { live: boolean }) {
   useRenderCount("GpuCenter");
-  const gpu = useGpu();
-  const gpuTempSeries = useHistorySeries("gpuTemp");
+  // Rounded shallow selector: re-renders only when a *displayed* GPU figure
+  // changes. While the GPU idles (stable clocks/usage) this collapses to nearly
+  // zero renders; under load it tracks the real changes.
+  const gpu = useTelemetryStore(
+    useShallow((s) => {
+      const g = s.snapshot?.gpu;
+      if (!g) return null;
+      return {
+        name: g.name,
+        usage: Math.round(g.usage),
+        vramUsedMb: g.vramUsedMb,
+        vramTotalMb: g.vramTotalMb,
+        temperatureC: g.temperatureC != null ? Math.round(g.temperatureC) : null,
+        coreClockMhz: g.coreClockMhz ?? null,
+        memClockMhz: g.memClockMhz ?? null,
+        powerW: g.powerW != null ? Math.round(g.powerW) : null,
+        powerLimitW: g.powerLimitW != null ? Math.round(g.powerLimitW) : null,
+      };
+    }),
+  );
+  const hist = useChartHistory();
+  const gpuTempSeries = useMemo(() => hist.map((p) => p.gpuTemp), [hist]);
   const [info, setInfo] = useState<GpuInfo | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
@@ -483,7 +516,7 @@ function chargeSessions(statuses: string[]): number {
   let sessions = 0;
   let prevCharging = false;
   for (const s of statuses) {
-    const charging = s.toLowerCase().includes("charg") && !s.toLowerCase().includes("dis");
+    const charging = isCharging(s);
     if (charging && !prevCharging) sessions++;
     prevCharging = charging;
   }
@@ -492,16 +525,26 @@ function chargeSessions(statuses: string[]): number {
 
 const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: BatteryReport | null; sessions: number }) {
   useRenderCount("BatteryIntel");
-  // Live charge %/draw come from the per-tick snapshot (this card subscribes to
-  // it directly); the wear/cycle/lifespan figures come from the one-shot battery
-  // report passed in by the page.
-  const battery = useBattery();
+  // Live charge %/draw via a SHALLOW selector of rounded primitives — battery %
+  // and draw barely move, so this card re-renders only when a shown figure
+  // changes (it has no live sparkline), not on every telemetry tick. Wear/cycle/
+  // lifespan come from the one-shot report.
+  const live = useTelemetryStore(
+    useShallow((s) => {
+      const b = s.snapshot?.battery;
+      return {
+        percent: b ? Math.round(b.chargePercent) : null,
+        charging: isCharging(b?.status),
+        drawW: b ? Math.round(Math.abs(b.powerDrawW)) : null,
+      };
+    }),
+  );
   const wear = report?.wearPercent;
   const cycles = report?.cycleCount;
   const years = report?.lifespan.yearsRemaining;
-  const dischargeW = report?.dischargeRateW ?? battery?.powerDrawW;
-  const charging = battery?.status?.includes("harg") ?? false;
-  const percent = battery?.chargePercent;
+  const dischargeW = report?.dischargeRateW != null ? Math.round(Math.abs(report.dischargeRateW)) : live.drawW;
+  const charging = live.charging;
+  const percent = live.percent;
 
   if (wear == null && percent == null) {
     return <GlassCard padding="lg" className="grid h-full place-items-center text-center"><div><BatteryCharging className="mx-auto h-8 w-8 text-content-subtle" /><p className="mt-sm text-sm text-content-muted">No battery detected.</p></div></GlassCard>;
@@ -509,7 +552,7 @@ const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: 
   const rows = [
     { label: "Battery wear", value: wear != null ? `${wear.toFixed(1)}%` : "—", tone: (wear ?? 0) > 20 ? "warning" : "success" },
     { label: "Cycle count", value: cycles != null ? `${cycles}` : "—" },
-    { label: charging ? "Charge rate" : "Power draw", value: dischargeW != null ? `${Math.abs(dischargeW).toFixed(1)} W` : "—" },
+    { label: charging ? "Charge rate" : "Power draw", value: dischargeW != null ? `${dischargeW} W` : "—" },
     { label: "Est. lifespan", value: years != null ? `${years.toFixed(1)} yrs` : "—" },
     { label: "Charge sessions", value: `${sessions}` },
   ];
@@ -517,7 +560,7 @@ const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: 
     <GlassCard padding="lg" className="h-full">
       <p className="mb-md flex items-center gap-xs text-sm font-semibold text-content"><BatteryCharging className="h-4 w-4 text-success" /> Battery Intelligence</p>
       <div className="mb-md flex items-end justify-between">
-        <span className="font-display text-3xl font-semibold text-content">{percent != null ? `${percent.toFixed(0)}%` : "—"}</span>
+        <span className="font-display text-3xl font-semibold text-content">{percent != null ? `${percent}%` : "—"}</span>
         <Badge variant={charging ? "success" : "neutral"}>{charging ? "Charging" : "On battery"}</Badge>
       </div>
       <div className="space-y-2xs">
@@ -536,7 +579,9 @@ const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: 
 
 const SEV_ICON: Record<string, { icon: LucideIcon; cls: string }> = {
   critical: { icon: XCircle, cls: "text-danger" },
+  high: { icon: AlertTriangle, cls: "text-danger" },
   warning: { icon: AlertTriangle, cls: "text-warning" },
+  low: { icon: Info, cls: "text-content-muted" },
   info: { icon: Info, cls: "text-info" },
   ok: { icon: CheckCircle2, cls: "text-success" },
 };
@@ -558,7 +603,7 @@ const AlertsFeed = memo(function AlertsFeed({ navigate, live }: { navigate: (p: 
       .then((s) => {
         const found = s.categories
           .flatMap((c) => c.findings)
-          .filter((f) => f.severity === "warning" || f.severity === "critical")
+          .filter((f) => f.severity === "warning" || f.severity === "high" || f.severity === "critical")
           .slice(0, 6);
         setAlerts(found);
       })

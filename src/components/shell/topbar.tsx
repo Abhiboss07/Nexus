@@ -4,10 +4,11 @@ import { motion } from "framer-motion";
 import { Bell, Search, Zap } from "lucide-react";
 import { NAV_ITEMS } from "@/config/navigation";
 import { useUIStore } from "@/store/ui-store";
+import { useNotificationStore } from "@/store/notification-store";
 import { Button } from "@/components/ui/button";
-import { StatusDot } from "@/components/ui/badge";
 import { ThemeSwitcher } from "./theme-switcher";
 import { TelemetryBadge } from "./telemetry-badge";
+import { InstallIndicator } from "./install-indicator";
 import { WindowControls } from "./window-controls";
 import { ProfileMenu } from "./profile-menu";
 import { Kbd } from "@/components/ui/kbd";
@@ -16,6 +17,7 @@ export function TopBar() {
   const { pathname } = useLocation();
   const openPalette = useUIStore((s) => s.toggleCommandPalette);
   const toggleNotifications = useUIStore((s) => s.setNotificationsOpen);
+  const unread = useNotificationStore((s) => s.unread);
 
   const current =
     NAV_ITEMS.find((i) =>
@@ -44,6 +46,7 @@ export function TopBar() {
 
       {/* Right cluster */}
       <div className="flex items-center gap-2xs">
+        <InstallIndicator />
         <TelemetryBadge />
         <QuickActions />
         <ThemeSwitcher />
@@ -51,11 +54,15 @@ export function TopBar() {
           variant="ghost"
           size="icon"
           className="no-drag relative"
-          aria-label="Notifications"
+          aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ""}`}
           onClick={() => toggleNotifications(true)}
         >
           <Bell className="h-[18px] w-[18px]" />
-          <StatusDot tone="accent" className="absolute right-2 top-2" />
+          {unread > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-[3px] text-[9px] font-bold leading-none text-white">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
         </Button>
         <ProfileMenu />
         <WindowControls />

@@ -4,11 +4,14 @@ import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
 import { BackgroundCanvas } from "@/components/background/background-canvas";
 import { CommandPalette } from "@/components/command/command-palette";
+import { NotificationDrawer } from "@/components/notifications/notification-drawer";
+import { Toaster } from "@/components/ui/toaster";
 import { SetupWizard } from "@/components/shell/setup-wizard";
 import { RenderCountOverlay } from "@/components/dev/render-count";
 import { PerfOverlay } from "@/components/dev/perf-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGlobalHotkeys } from "@/hooks/use-hotkeys";
+import { useAmbientPause } from "@/hooks/use-ambient-pause";
 import { pageTransition } from "@/lib/motion";
 
 /**
@@ -17,12 +20,15 @@ import { pageTransition } from "@/lib/motion";
  */
 export function AppShell() {
   useGlobalHotkeys();
+  useAmbientPause();
   const location = useLocation();
 
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
       <BackgroundCanvas />
       <CommandPalette />
+      <NotificationDrawer />
+      <Toaster />
       <SetupWizard />
       <RenderCountOverlay />
       <PerfOverlay />

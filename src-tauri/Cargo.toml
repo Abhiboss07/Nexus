@@ -25,6 +25,9 @@ serde_json = "1"
 # handling so SIGINT/SIGTERM trigger a clean shutdown (no false crash markers).
 libc = "0.2"
 tauri-plugin-dialog = "2"
+# Persistent telemetry store. `bundled` compiles SQLite from source so there's
+# no system libsqlite3 dependency on target machines.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [profile.release]
 panic = "abort"

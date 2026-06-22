@@ -8,8 +8,10 @@
 mod commands;
 mod control;
 mod diagnostics;
+mod gaming;
 mod linux_hub;
 mod logging;
+mod notifications;
 mod optimizer;
 #[cfg(test)]
 mod runtime_smoke;
@@ -27,10 +29,20 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 use commands::AppState;
 use control::ControlService;
-use telemetry::{ProcessMonitor, TelemetryService};
+use telemetry::{ProcessMonitor, TelemetryService, TelemetryStore};
 
 /// Event channel the frontend subscribes to for live telemetry frames.
 pub const TELEMETRY_EVENT: &str = "telemetry://snapshot";
+
+/// Best-effort machine hostname for session attribution.
+fn hostname() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string()))
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -62,6 +74,33 @@ pub fn run() {
         &format!("Hardware: {}", control.profile().vendor_label),
     );
 
+    // ----- Persistent telemetry store -----
+    // Durable history behind the in-memory ring. Degrades to an in-memory DB if
+    // the file can't be opened, so persistence failure never blocks startup.
+    let db_path = logging::data_dir().join("telemetry.db");
+    let store = Arc::new(match TelemetryStore::open(&db_path) {
+        Ok(s) => s,
+        Err(e) => {
+            logging::line("WARN", &format!("Telemetry store on-disk unavailable ({e}); using in-memory."));
+            TelemetryStore::in_memory().expect("in-memory telemetry store")
+        }
+    });
+    // ----- Notification Center store -----
+    let notif_store = Arc::new(
+        notifications::NotificationStore::open(&logging::data_dir().join("notifications.db"))
+            .unwrap_or_else(|e| {
+                logging::line("WARN", &format!("Notification store on-disk unavailable ({e}); using in-memory."));
+                notifications::NotificationStore::in_memory().expect("in-memory notification store")
+            }),
+    );
+
+    // Stamp any session left open by a prior crash, then open this run's session.
+    let _ = store.close_stale_sessions();
+    match store.begin_session(env!("CARGO_PKG_VERSION"), &hostname()) {
+        Ok(id) => logging::line("INFO", &format!("Telemetry session #{id} started")),
+        Err(e) => logging::line("WARN", &format!("Couldn't start telemetry session: {e}")),
+    }
+
     let app = tauri::Builder::default()
         // Focus the existing window if a second instance is launched.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -76,6 +115,8 @@ pub fn run() {
         ))
         .manage(state)
         .manage(control)
+        .manage(store.clone())
+        .manage(notif_store.clone())
         .manage(Mutex::new(ProcessMonitor::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
@@ -196,6 +237,20 @@ pub fn run() {
             commands::app_update_info,
             commands::check_for_update,
             commands::install_update,
+            commands::telemetry_sessions,
+            commands::telemetry_session_summary,
+            commands::telemetry_history,
+            commands::telemetry_stats,
+            commands::gaming_session_analytics,
+            commands::gaming_session_series,
+            commands::gaming_fps_analysis,
+            commands::gaming_trends,
+            commands::notif_add,
+            commands::notif_list,
+            commands::notif_unread,
+            commands::notif_mark_read,
+            commands::notif_mark_all_read,
+            commands::notif_clear,
         ])
         .setup(move |app| {
             // ----- System tray -----
@@ -220,6 +275,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        app.state::<Arc<TelemetryStore>>().end_current_session();
                         logging::shutdown();
                         app.exit(0);
                     }
@@ -241,13 +297,45 @@ pub fn run() {
             let handle = app.handle().clone();
             let svc = service.clone();
             let iv = interval_ms.clone();
-            std::thread::spawn(move || loop {
-                let snapshot = svc.lock().ok().map(|mut s| s.collect());
-                if let Some(snapshot) = snapshot {
-                    let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
+            let stream_store = store.clone();
+            std::thread::spawn(move || {
+                // Persist at a coarser cadence than the UI stream — Gaming
+                // Intelligence doesn't need sub-2s resolution and we keep the DB
+                // small. The live ring still streams at the full interval.
+                const STORE_EVERY_MS: u128 = 5_000;
+                let mut last_store = std::time::Instant::now()
+                    .checked_sub(Duration::from_secs(60))
+                    .unwrap_or_else(std::time::Instant::now);
+                loop {
+                    let snapshot = svc.lock().ok().map(|mut s| s.collect());
+                    if let Some(snapshot) = snapshot {
+                        let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
+                        if last_store.elapsed().as_millis() >= STORE_EVERY_MS {
+                            if let Some(sid) = stream_store.current_session() {
+                                // `None` FPS for now — a frame-rate source (e.g.
+                                // MangoHud) can supply real values later without a
+                                // schema change.
+                                let _ = stream_store.record(sid, &snapshot, None);
+                            }
+                            last_store = std::time::Instant::now();
+                        }
+                    }
+                    let ms = iv.load(Ordering::Relaxed).max(250);
+                    std::thread::sleep(Duration::from_millis(ms));
                 }
-                let ms = iv.load(Ordering::Relaxed).max(250);
-                std::thread::sleep(Duration::from_millis(ms));
+            });
+
+            // ----- Telemetry maintenance thread (aggregate + retention) -----
+            let maint_store = store.clone();
+            std::thread::spawn(move || {
+                // Settle, then roll complete hours into aggregates and prune on a
+                // 10-minute cadence (cheap; only scans buckets since last run).
+                std::thread::sleep(Duration::from_secs(30));
+                loop {
+                    let _ = maint_store.aggregate();
+                    let _ = maint_store.prune();
+                    std::thread::sleep(Duration::from_secs(600));
+                }
             });
 
             // ----- Automation watcher (opt-in) -----
@@ -284,6 +372,13 @@ pub fn run() {
                         if last_applied.as_deref() != Some(id.as_str()) {
                             let _ = svc
                                 .apply_nexus_profile(&id, control::rgb::RgbSource::Automation);
+                            notifications::push(
+                                &auto_handle,
+                                "profile",
+                                "success",
+                                "Profile auto-switched",
+                                &format!("Applied the “{id}” profile automatically."),
+                            );
                             last_applied = Some(id);
                         }
                     } else {
@@ -368,9 +463,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Nexus Control Center");
 
-    app.run(|_app, event| {
-        if let RunEvent::ExitRequested { .. } = event {
+    app.run(|app_handle, event| match event {
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            // Stamp the telemetry session closed on the way out (idempotent;
+            // close_stale_sessions covers a hard kill on the next boot).
+            app_handle.state::<Arc<TelemetryStore>>().end_current_session();
             logging::shutdown();
         }
+        _ => {}
     });
 }

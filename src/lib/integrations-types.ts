@@ -42,4 +42,12 @@ export interface InstallProgress {
   flatpakId: string;
   phase: InstallPhase;
   version: string | null;
+  /** Total bytes to download (from flatpak `remote-info`), when known. */
+  downloadBytes: number | null;
+  /** Bytes downloaded so far (estimated), when known. */
+  transferredBytes: number | null;
+  /** Overall completion 0–100, when flatpak reports it. */
+  percent: number | null;
+  /** Estimated seconds remaining, when computable. */
+  etaSecs: number | null;
 }

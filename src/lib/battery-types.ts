@@ -2,6 +2,21 @@
 
 export type BatteryGrade = "excellent" | "good" | "fair" | "poor";
 
+/**
+ * Whether the battery is *actively charging*, from a Linux power-supply status
+ * string (lowercased: "charging" | "discharging" | "full" | "not charging" |
+ * "unknown").
+ *
+ * IMPORTANT: never use `status.includes("charg")` — "disCHARGing" contains
+ * "charg", which produced a stale "charging" indicator after unplugging. This is
+ * the single source of truth; every charging check must go through it.
+ */
+export function isCharging(status?: string | null): boolean {
+  const s = (status ?? "").toLowerCase();
+  if (s.includes("discharg") || s.includes("not charg")) return false;
+  return s.includes("charg");
+}
+
 export interface BatteryRecommendation {
   severity: "info" | "warning" | "critical";
   title: string;

@@ -52,6 +52,17 @@ import type {
 } from "./integrations-types";
 import type { CommandResult, IntelligenceReport } from "./intelligence-types";
 import type {
+  TelemetrySession,
+  TelemetryHistoryRow,
+  TelemetryStoreStats,
+} from "./telemetry-history-types";
+import type {
+  SessionAnalytics,
+  FpsAnalysis,
+  TrendReport,
+} from "./gaming-types";
+import type { AppNotification } from "./notification-types";
+import type {
   CompatibilityReport,
   HealthCheck,
   Permissions,
@@ -265,6 +276,35 @@ export const flatpakHealth = () => invoke<FlatpakHealth>("flatpak_health");
 /** One-click "Add Flathub" (user-scoped, idempotent). */
 export const addFlathub = () => invoke<string>("add_flathub");
 
+/* ----- Persistent telemetry store (history / sessions / aggregates) ----- */
+
+/** Recent telemetry sessions (newest first) with rolled-up summary stats. */
+export const telemetrySessions = (limit?: number) =>
+  invoke<TelemetrySession[]>("telemetry_sessions", { limit });
+/** Summary stats for one session (null if unknown). */
+export const telemetrySessionSummary = (id: number) =>
+  invoke<TelemetrySession | null>("telemetry_session_summary", { id });
+/** Persisted history for `[since, until]` (ms epoch); resolution auto-selected. */
+export const telemetryHistory = (since: number, until: number, maxPoints?: number) =>
+  invoke<TelemetryHistoryRow[]>("telemetry_history", { since, until, maxPoints });
+/** Store-wide totals (sessions, samples, tracked time, peak temps, db size). */
+export const telemetryStats = () => invoke<TelemetryStoreStats>("telemetry_stats");
+
+/* ----- Gaming Intelligence v1 (analysis over the persistent store) ----- */
+
+/** Full per-session analytics (avgs/peaks/mins, power, FPS stats, throttle %). */
+export const gamingSessionAnalytics = (id: number) =>
+  invoke<SessionAnalytics | null>("gaming_session_analytics", { id });
+/** Per-sample timeline for one session (FPS / thermal charts). */
+export const gamingSessionSeries = (id: number, maxPoints?: number) =>
+  invoke<TelemetryHistoryRow[]>("gaming_session_series", { id, maxPoints });
+/** "Why FPS dropped" — limiter/bottleneck analysis for a session. */
+export const gamingFpsAnalysis = (id: number) =>
+  invoke<FpsAnalysis | null>("gaming_fps_analysis", { id });
+/** Cross-session performance trends (regressions / improvements). */
+export const gamingTrends = (limit?: number) =>
+  invoke<TrendReport>("gaming_trends", { limit });
+
 /* ----- System Doctor: deep scan + storage analyzer ----- */
 
 export const runSystemScan = () => invoke<SystemScan>("run_system_scan");
@@ -361,6 +401,25 @@ export async function onTelemetry(
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<Snapshot>(TELEMETRY_EVENT, (e) => handler(e.payload));
+}
+
+/* ----- Notification Center ----- */
+
+export const notifAdd = (kind: string, severity: string, title: string, body = "") =>
+  invoke<AppNotification>("notif_add", { kind, severity, title, body });
+export const notifList = (limit?: number) => invoke<AppNotification[]>("notif_list", { limit });
+export const notifUnread = () => invoke<number>("notif_unread");
+export const notifMarkRead = (id: number) => invoke<void>("notif_mark_read", { id });
+export const notifMarkAllRead = () => invoke<void>("notif_mark_all_read");
+export const notifClear = () => invoke<void>("notif_clear");
+
+/** Subscribe to new-notification events. Returns an unlisten function. */
+export async function onNotification(
+  handler: (n: AppNotification) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<AppNotification>("notification://new", (e) => handler(e.payload));
 }
 
 /** Subscribe to install-progress events. Returns an unlisten function. */

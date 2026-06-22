@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Gauge,
@@ -37,7 +37,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SectionTitle } from "@/components/ui/section";
 import { useIntegrations } from "@/hooks/use-integrations";
-import { onIntegrationProgress } from "@/lib/ipc";
+import { formatBytes } from "@/lib/format";
+import { useInstallStore, isActive, type InstallJob } from "@/store/install-store";
 import type {
   Integration,
   IntegrationCategory,
@@ -84,8 +85,16 @@ const CATEGORIES: { id: IntegrationCategory; label: string; icon: LucideIcon }[]
 ];
 
 export default function IntegrationsPage() {
-  const { items, health, loading, refresh, install, uninstall, open, addFlathub } = useIntegrations();
+  const { items, health, loading, refresh, uninstall, open, addFlathub } = useIntegrations();
   const detected = items.filter((i) => i.detected).length;
+
+  // Re-run detection whenever a background install finishes — the page is just a
+  // viewer of install state now, so completion is signalled by the global store.
+  const completedTick = useInstallStore((s) => s.completedTick);
+  useEffect(() => {
+    if (completedTick > 0) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedTick]);
 
   return (
     <div>
@@ -120,7 +129,7 @@ export default function IntegrationsPage() {
               />
               <div className="grid grid-cols-1 gap-md sm:grid-cols-2 lg:grid-cols-3">
                 {group.map((it) => (
-                  <IntegrationCard key={it.id} item={it} health={health} install={install} uninstall={uninstall} open={open} />
+                  <IntegrationCard key={it.id} item={it} health={health} uninstall={uninstall} open={open} />
                 ))}
               </div>
             </motion.section>
@@ -215,10 +224,9 @@ const PHASE_LABEL: Record<InstallPhase, string> = {
   installed: "Installed",
   failed: "Failed",
 };
-const ACTIVE_PHASES: InstallPhase[] = ["queued", "preparing", "installing", "verifying"];
 
-/** Slim indeterminate bar — flatpak gives no reliable % in non-interactive mode,
- *  so we honestly show motion + the real current step rather than a fake %. */
+/** Slim indeterminate bar — used until flatpak reports a real percentage; we
+ *  honestly show motion + the current step rather than a fake %. */
 function IndeterminateBar() {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
@@ -231,20 +239,59 @@ function IndeterminateBar() {
   );
 }
 
-function IntegrationCard({ item, health, install, uninstall, open }: {
+/** Determinate bar — shown once flatpak reports a real completion percent. */
+function DeterminateBar({ percent }: { percent: number }) {
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+      <div
+        className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+        style={{ width: `${Math.max(2, Math.min(100, percent))}%` }}
+      />
+    </div>
+  );
+}
+
+/** Compact ETA, e.g. "8s" or "1m 20s". */
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+function IntegrationCard({ item, health, uninstall, open }: {
   item: Integration;
   health: FlatpakHealth;
-  install: (i: Integration) => Promise<string>;
   uninstall: (i: Integration) => Promise<string>;
   open: (i: Integration) => Promise<string>;
 }) {
   const Icon = ICON[item.id] ?? Package;
-  const [phase, setPhase] = useState<InstallPhase | null>(null);
-  const [version, setVersion] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  // Install state lives in the GLOBAL store, so it survives navigating away.
+  const job: InstallJob | undefined = useInstallStore((s) => s.jobs[item.flatpakId]);
+  const startInstall = useInstallStore((s) => s.start);
   const [mng, setMng] = useState<{ busy: "open" | "uninstall" | null; msg: { ok: boolean; text: string } | null }>({ busy: null, msg: null });
   const managed = item.source === "flatpak" && !!item.flatpakId;
+
+  const phase = job?.phase ?? null;
+  const installing = isActive(job);
+  const version = job?.version ?? null;
+  const error = job?.error ?? null;
+  const stats = {
+    percent: job?.percent ?? null,
+    downloadBytes: job?.downloadBytes ?? null,
+    transferredBytes: job?.transferredBytes ?? null,
+    etaSecs: job?.etaSecs ?? null,
+  };
+
+  // A local clock just to tick the elapsed/“Xs” readout while a job is active —
+  // it never owns install state, only re-renders this card to refresh the time.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!installing) return;
+    const t = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [installing]);
+  const elapsed = job ? Math.floor((Date.now() - job.startedAt) / 1000) : 0;
 
   async function doOpen() {
     setMng({ busy: "open", msg: null });
@@ -262,37 +309,10 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
   // Install is offered whenever there's a flatpak path and flatpak itself is
   // present — a missing Flathub remote is self-healed by the backend.
   const canInstall = status === "available" || status === "missing-repo";
-  const installing = phase !== null && ACTIVE_PHASES.includes(phase);
 
-  async function doInstall() {
-    setPhase("queued");
-    setError(null);
-    setVersion(null);
-    setElapsed(0);
-    const started = Date.now();
-    const timer = window.setInterval(
-      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
-      1000,
-    );
-    // Attach the progress listener BEFORE invoking so no phase event is missed.
-    const unlisten = await onIntegrationProgress((p) => {
-      if (p.flatpakId !== item.flatpakId) return;
-      setPhase(p.phase);
-      if (p.version) setVersion(p.version);
-    });
-    try {
-      const text = await install(item);
-      setPhase("installed");
-      const m = text.match(/v([0-9][\w.\-]*)/);
-      if (m) setVersion((v) => v ?? m[1]);
-    } catch (e) {
-      setPhase("failed");
-      setError(String(e));
-    } finally {
-      window.clearInterval(timer);
-      unlisten();
-    }
-  }
+  // Fire-and-forget: the global store + InstallManager own the lifecycle, so this
+  // keeps running (and updating) even after the user leaves this page.
+  const doInstall = () => startInstall(item.flatpakId, item.name);
 
   return (
     <GlassCard
@@ -343,15 +363,27 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
         ) : (
           <div className="mt-xs space-y-xs">
             {installing ? (
-              /* Live install state machine */
+              /* Live install state machine — real size/percent/ETA when flatpak
+                 reports them, indeterminate fallback otherwise. */
               <div className="space-y-2xs">
                 <div className="flex items-center justify-between text-2xs">
                   <span className="font-medium text-content">{PHASE_LABEL[phase!]}</span>
-                  <span className="tabular-nums text-content-subtle">{elapsed}s</span>
+                  <span className="tabular-nums text-content-subtle">
+                    {stats.percent != null ? `${stats.percent}%` : `${elapsed}s`}
+                  </span>
                 </div>
-                <IndeterminateBar />
+                {stats.percent != null ? <DeterminateBar percent={stats.percent} /> : <IndeterminateBar />}
                 {phase === "installing" && (
-                  <p className="text-2xs text-content-subtle">Fetching runtime + app from Flathub — this can take a few minutes.</p>
+                  <div className="flex items-center justify-between gap-sm text-2xs text-content-subtle">
+                    <span className="tabular-nums">
+                      {stats.downloadBytes != null
+                        ? stats.transferredBytes != null
+                          ? `${formatBytes(stats.transferredBytes)} / ${formatBytes(stats.downloadBytes)}`
+                          : `≈ ${formatBytes(stats.downloadBytes)} to download`
+                        : "Fetching from Flathub…"}
+                    </span>
+                    {stats.etaSecs != null && <span className="tabular-nums">{formatEta(stats.etaSecs)} left</span>}
+                  </div>
                 )}
               </div>
             ) : phase === "installed" ? (

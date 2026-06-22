@@ -27,6 +27,7 @@ import {
   FileText,
   Film,
   Keyboard,
+  Volume2,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -72,6 +73,7 @@ import type { UpdateStatus } from "@/lib/system-types";
 import type { Plugin } from "@/lib/plugins-types";
 import type { NexusProfile, AutomationConfig } from "@/lib/power-types";
 import { CapabilityBadge } from "@/components/ui/capability-gate";
+import { BatteryEventsPanel } from "@/components/settings/battery-events-panel";
 import { formatBytes } from "@/lib/format";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
@@ -82,6 +84,7 @@ const SETTINGS_SECTIONS = [
   { id: "performance", label: "Performance", icon: Gauge },
   { id: "rgb", label: "RGB", icon: Keyboard },
   { id: "battery", label: "Battery", icon: BatteryCharging },
+  { id: "battery-events", label: "Battery Events", icon: Volume2 },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "updates", label: "Updates", icon: RefreshCw },
   { id: "plugins", label: "Plugins", icon: Puzzle },
@@ -198,6 +201,7 @@ export default function SettingsPage() {
           <motion.section variants={fadeUp} id="performance"><PerformancePanel /></motion.section>
           <motion.section variants={fadeUp} id="rgb"><RgbPanel /></motion.section>
           <motion.section variants={fadeUp} id="battery"><BatteryPanel /></motion.section>
+          <motion.section variants={fadeUp} id="battery-events"><BatteryEventsPanel /></motion.section>
           <motion.section variants={fadeUp} id="ai"><AiPanel /></motion.section>
           <motion.section variants={fadeUp} id="updates"><UpdatesPanel /></motion.section>
           <motion.section variants={fadeUp} id="plugins"><PluginsPanel /></motion.section>

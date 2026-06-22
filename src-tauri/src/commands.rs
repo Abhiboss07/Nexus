@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::diagnostics::{self, HealthCheck, Permissions};
@@ -529,19 +529,30 @@ pub async fn get_integrations() -> Result<Vec<Integration>, String> {
 }
 
 /// Progress event for a one-click install, emitted on `integration-progress`.
-/// Phases are REAL backend steps (no fabricated percentages): preparing →
-/// installing → verifying → installed | failed.
-#[derive(Clone, serde::Serialize)]
+/// Phases are REAL backend steps: preparing → installing → verifying → installed
+/// | failed. Sizes come from flatpak's own `remote-info`; `percent`/`eta_secs`
+/// are populated only while flatpak streams a real percentage (`None` otherwise
+/// — the UI falls back to an indeterminate bar, never a fabricated number).
+#[derive(Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallProgress {
     flatpak_id: String,
     phase: String,
     version: Option<String>,
+    /// Total bytes to download (from `remote-info`), when known.
+    download_bytes: Option<u64>,
+    /// Bytes downloaded so far (estimated from percent × total), when known.
+    transferred_bytes: Option<u64>,
+    /// Overall completion 0–100, when flatpak reports it.
+    percent: Option<u32>,
+    /// Estimated seconds remaining, when computable.
+    eta_secs: Option<u64>,
 }
 
 /// One-click flatpak install for an integration (user-level, no sudo). Async:
 /// `flatpak install` blocks for a while; keep it off the UI thread. Emits
-/// `integration-progress` events so the UI can show a live state machine.
+/// `integration-progress` events so the UI can show a live state machine with
+/// real download size, transferred/total, percent and ETA when available.
 #[tauri::command]
 pub async fn install_integration(
     app: tauri::AppHandle,
@@ -550,23 +561,55 @@ pub async fn install_integration(
     use crate::control::integrations as ig;
     use tauri::Emitter;
     tauri::async_runtime::spawn_blocking(move || {
-        let emit = |phase: &str, version: Option<String>| {
+        let emit = |progress: InstallProgress| {
+            let _ = app.emit("integration-progress", progress);
+        };
+        let base = |phase: &str| InstallProgress {
+            flatpak_id: flatpak_id.clone(),
+            phase: phase.into(),
+            ..Default::default()
+        };
+
+        emit(base("preparing"));
+        ig::ensure_ready(&flatpak_id)?;
+
+        // Real download size up front (flatpak's own accounting).
+        let size = ig::remote_size(&flatpak_id);
+        let total = size.download_bytes;
+        emit(InstallProgress {
+            download_bytes: total,
+            ..base("installing")
+        });
+
+        let started = std::time::Instant::now();
+        ig::run_install(&flatpak_id, |pct| {
+            let transferred = total.map(|t| ((t as f64) * (pct as f64) / 100.0) as u64);
+            let elapsed = started.elapsed().as_secs();
+            let eta = if pct > 0 && pct < 100 {
+                Some(elapsed.saturating_mul((100 - pct) as u64) / pct as u64)
+            } else {
+                None
+            };
             let _ = app.emit(
                 "integration-progress",
                 InstallProgress {
                     flatpak_id: flatpak_id.clone(),
-                    phase: phase.into(),
-                    version,
+                    phase: "installing".into(),
+                    download_bytes: total,
+                    transferred_bytes: transferred,
+                    percent: Some(pct),
+                    eta_secs: eta,
+                    version: None,
                 },
             );
-        };
-        emit("preparing", None);
-        ig::ensure_ready(&flatpak_id)?;
-        emit("installing", None);
-        ig::run_install(&flatpak_id)?;
-        emit("verifying", None);
+        })?;
+
+        emit(base("verifying"));
         let version = ig::installed_flatpak_version(&flatpak_id);
-        emit("installed", version.clone());
+        emit(InstallProgress {
+            version: version.clone(),
+            ..base("installed")
+        });
         Ok(match version {
             Some(v) => format!("Installed · v{v}"),
             None => "Installed via Flathub.".into(),
@@ -605,6 +648,188 @@ pub async fn flatpak_health() -> Result<crate::control::integrations::FlatpakHea
 #[tauri::command]
 pub async fn add_flathub() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(crate::control::integrations::add_flathub)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/* ----- Persistent telemetry store (history / sessions / aggregates) ----- */
+
+/// Recent telemetry sessions (newest first) with rolled-up summary stats.
+/// Gaming Intelligence consumes these instead of the volatile in-memory ring.
+#[tauri::command]
+pub async fn telemetry_sessions(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    limit: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::SessionRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.sessions(limit.unwrap_or(50)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Summary stats for one session.
+#[tauri::command]
+pub async fn telemetry_session_summary(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::telemetry::store::SessionRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_summary(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Persisted time-series history for `[since, until]` (ms epoch). Resolution is
+/// auto-selected: raw samples for recent windows, hourly aggregates for longer.
+#[tauri::command]
+pub async fn telemetry_history(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    since: i64,
+    until: i64,
+    max_points: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::HistoryRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.history(since, until, max_points.unwrap_or(600)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Store-wide totals (sessions, samples, tracked time, peak temps, db size).
+#[tauri::command]
+pub async fn telemetry_stats(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+) -> Result<crate::telemetry::store::StoreStats, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.stats())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/* ----- Gaming Intelligence v1 (analysis over the persistent store) ----- */
+
+/// Full per-session analytics (avgs/peaks/mins, power, FPS stats, throttle %).
+#[tauri::command]
+pub async fn gaming_session_analytics(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::telemetry::store::SessionAnalytics>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_analytics(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Per-sample timeline for one session (FPS / thermal history charts).
+#[tauri::command]
+pub async fn gaming_session_series(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+    max_points: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::HistoryRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_series(id, max_points.unwrap_or(600)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// "Why FPS dropped" — limiter/bottleneck analysis for a session.
+#[tauri::command]
+pub async fn gaming_fps_analysis(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::gaming::FpsAnalysis>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::gaming::fps_analysis(&store, id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Cross-session performance trends (regressions / improvements vs the recent
+/// baseline).
+#[tauri::command]
+pub async fn gaming_trends(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    limit: Option<i64>,
+) -> Result<crate::gaming::TrendReport, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::gaming::trends(&store, limit.unwrap_or(10)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/* ----- Notification Center (persistent event hub) ----- */
+
+/// Add a notification, persist it, and emit `notification://new` so the bell +
+/// drawer update live. Both frontend `notify()` calls and backend events
+/// (profile auto-switch, etc.) funnel through here.
+#[tauri::command]
+pub async fn notif_add(
+    app: tauri::AppHandle,
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    kind: String,
+    severity: String,
+    title: String,
+    body: String,
+) -> Result<crate::notifications::Notification, String> {
+    let store = store.inner().clone();
+    let n = tauri::async_runtime::spawn_blocking(move || {
+        store.add(&kind, &severity, &title, &body)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    use tauri::Emitter;
+    let _ = app.emit("notification://new", &n);
+    Ok(n)
+}
+
+#[tauri::command]
+pub async fn notif_list(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    limit: Option<i64>,
+) -> Result<Vec<crate::notifications::Notification>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.list(limit.unwrap_or(100)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_unread(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<i64, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.unread_count())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_mark_read(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+    id: i64,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_read(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_mark_all_read(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_all_read())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn notif_clear(
+    store: State<'_, Arc<crate::notifications::NotificationStore>>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.clear())
         .await
         .map_err(|e| e.to_string())?
 }
@@ -873,6 +1098,8 @@ pub fn system_uptime() -> u64 {
 /// explicit "Quit" action). Flushes logs first, mirroring the tray quit.
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    app.state::<Arc<crate::telemetry::TelemetryStore>>()
+        .end_current_session();
     logging::shutdown();
     app.exit(0);
 }
