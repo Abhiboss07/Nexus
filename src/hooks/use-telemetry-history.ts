@@ -28,6 +28,8 @@ function demoSessions(): TelemetrySession[] {
       gpuUsageAvg: 41,
       gpuTempAvg: 52,
       gpuTempMax: 71,
+      fpsAvg: 0,
+      fpsMax: 0,
       appVersion: "1.0.0-beta.2",
     },
     {
@@ -42,6 +44,8 @@ function demoSessions(): TelemetrySession[] {
       gpuUsageAvg: 78,
       gpuTempAvg: 68,
       gpuTempMax: 83,
+      fpsAvg: 0,
+      fpsMax: 0,
       appVersion: "1.0.0-beta.2",
     },
     {
@@ -56,6 +60,8 @@ function demoSessions(): TelemetrySession[] {
       gpuUsageAvg: 9,
       gpuTempAvg: 44,
       gpuTempMax: 52,
+      fpsAvg: 0,
+      fpsMax: 0,
       appVersion: "1.0.0-beta.1",
     },
   ];
@@ -71,6 +77,7 @@ function demoStats(): TelemetryStoreStats {
     trackedMs: 6 * HOUR,
     cpuTempPeak: 92,
     gpuTempPeak: 83,
+    fpsPeak: 0,
     dbBytes: 1.8 * 1024 * 1024,
   };
 }

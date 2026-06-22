@@ -16,6 +16,9 @@ export interface TelemetrySession {
   gpuUsageAvg: number;
   gpuTempAvg: number;
   gpuTempMax: number;
+  /** Avg / peak FPS (0 until a frame-rate source records it). */
+  fpsAvg: number;
+  fpsMax: number;
   appVersion: string;
 }
 
@@ -30,6 +33,9 @@ export interface TelemetryHistoryRow {
   gpuTemp: number;
   gpuTempMax: number;
   memUsage: number;
+  /** Frame rate (avg for hourly rows); 0 until a frame-rate source records it. */
+  fps: number;
+  fpsMax: number;
   resolution: "raw" | "hourly";
 }
 
@@ -43,5 +49,6 @@ export interface TelemetryStoreStats {
   trackedMs: number;
   cpuTempPeak: number;
   gpuTempPeak: number;
+  fpsPeak: number;
   dbBytes: number;
 }

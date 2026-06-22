@@ -26,11 +26,12 @@ use serde::Serialize;
 
 use super::types::Snapshot;
 
-/// Raw per-tick samples are kept this long, then pruned (they've been rolled
-/// into `agg_hourly` by then). 48h gives high-resolution recent history.
-const RAW_RETENTION_MS: i64 = 48 * 3_600_000;
-/// Hourly aggregates are kept this long for long-range trends.
-const AGG_RETENTION_MS: i64 = 90 * 24 * 3_600_000;
+/// Raw per-tick samples are kept this long (high-resolution recent window for
+/// fine-grained analysis like "why FPS dropped"), then pruned once rolled into
+/// `agg_hourly`.
+const RAW_RETENTION_MS: i64 = 7 * 24 * 3_600_000;
+/// Hourly aggregates implement the 30-day retention policy for long-range trends.
+const AGG_RETENTION_MS: i64 = 30 * 24 * 3_600_000;
 const HOUR_MS: i64 = 3_600_000;
 
 pub struct TelemetryStore {
@@ -58,6 +59,9 @@ pub struct SessionRow {
     pub gpu_usage_avg: f64,
     pub gpu_temp_avg: f64,
     pub gpu_temp_max: f64,
+    /// Avg / peak FPS for the session (0 until a frame-rate source records it).
+    pub fps_avg: f64,
+    pub fps_max: f64,
     pub app_version: String,
 }
 
@@ -74,6 +78,9 @@ pub struct HistoryRow {
     pub gpu_temp: f64,
     pub gpu_temp_max: f64,
     pub mem_usage: f64,
+    /// Frame rate (avg for hourly rows); 0 until a frame-rate source records it.
+    pub fps: f64,
+    pub fps_max: f64,
     /// Resolution of this point: "raw" | "hourly".
     pub resolution: String,
 }
@@ -90,6 +97,7 @@ pub struct StoreStats {
     pub tracked_ms: i64,
     pub cpu_temp_peak: f64,
     pub gpu_temp_peak: f64,
+    pub fps_peak: f64,
     pub db_bytes: i64,
 }
 
@@ -150,10 +158,13 @@ impl TelemetryStore {
                cpu_fan       INTEGER,
                gpu_fan       INTEGER,
                battery_pct   REAL,
-               battery_power REAL
+               battery_power REAL,
+               fps           REAL
              );
              CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts);
              CREATE INDEX IF NOT EXISTS idx_samples_session ON samples(session_id);
+             -- Composite time-series index for session-scoped range queries.
+             CREATE INDEX IF NOT EXISTS idx_samples_session_ts ON samples(session_id, ts);
 
              CREATE TABLE IF NOT EXISTS agg_hourly (
                bucket        INTEGER PRIMARY KEY,
@@ -162,12 +173,22 @@ impl TelemetryStore {
                cpu_temp_avg  REAL, cpu_temp_max  REAL,
                gpu_usage_avg REAL, gpu_usage_max REAL,
                gpu_temp_avg  REAL, gpu_temp_max  REAL,
-               mem_usage_avg REAL, mem_usage_max REAL
+               mem_usage_avg REAL, mem_usage_max REAL,
+               fps_avg       REAL, fps_max       REAL
              );
 
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);",
         )
         .map_err(|e| e.to_string())?;
+        // Idempotent migrations for DBs created before a column existed (the
+        // ADD COLUMN errors harmlessly when it's already present).
+        for stmt in [
+            "ALTER TABLE samples ADD COLUMN fps REAL",
+            "ALTER TABLE agg_hourly ADD COLUMN fps_avg REAL",
+            "ALTER TABLE agg_hourly ADD COLUMN fps_max REAL",
+        ] {
+            let _ = conn.execute(stmt, []);
+        }
         Ok(Self {
             conn: Mutex::new(conn),
             current: AtomicI64::new(-1),
@@ -238,8 +259,12 @@ impl TelemetryStore {
     /* ------------------------------ writes ------------------------------ */
 
     /// Append one sample for a session. The caller throttles cadence (we don't
-    /// need 1.5s resolution forever); this is a single prepared INSERT.
-    pub fn record(&self, session_id: i64, snap: &Snapshot) -> Result<(), String> {
+    /// need 1.5s resolution forever); this is a single prepared INSERT. `fps` is
+    /// supplied separately (it isn't part of the hardware `Snapshot`) so a future
+    /// MangoHud / overlay source can record real frame rates here without any
+    /// schema change — the column already exists for "FPS History" and
+    /// "why FPS dropped" analysis.
+    pub fn record(&self, session_id: i64, snap: &Snapshot, fps: Option<f32>) -> Result<(), String> {
         let gpu = snap.gpu.as_ref();
         let bat = snap.battery.as_ref();
         let cpu_fan = fan_rpm(&snap.fans, "CPU Fan");
@@ -249,8 +274,8 @@ impl TelemetryStore {
             "INSERT INTO samples
                (session_id, ts, cpu_usage, cpu_temp, cpu_power,
                 gpu_usage, gpu_temp, gpu_power, vram_used, mem_usage,
-                cpu_fan, gpu_fan, battery_pct, battery_power)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                cpu_fan, gpu_fan, battery_pct, battery_power, fps)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
             params![
                 session_id,
                 snap.timestamp as i64,
@@ -266,6 +291,7 @@ impl TelemetryStore {
                 gpu_fan,
                 bat.map(|b| b.charge_percent),
                 bat.map(|b| b.power_draw_w),
+                fps,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -297,7 +323,8 @@ impl TelemetryStore {
                         AVG(cpu_temp),  MAX(cpu_temp),
                         AVG(gpu_usage), MAX(gpu_usage),
                         AVG(gpu_temp),  MAX(gpu_temp),
-                        AVG(mem_usage), MAX(mem_usage)
+                        AVG(mem_usage), MAX(mem_usage),
+                        AVG(fps),       MAX(fps)
                    FROM samples
                   WHERE ts >= ?2 AND ts < ?3
                   GROUP BY bucket",
@@ -319,6 +346,8 @@ impl TelemetryStore {
                     r.get::<_, Option<f64>>(9)?,
                     r.get::<_, Option<f64>>(10)?,
                     r.get::<_, Option<f64>>(11)?,
+                    r.get::<_, Option<f64>>(12)?,
+                    r.get::<_, Option<f64>>(13)?,
                 ))
             })
             .map_err(|e| e.to_string())?
@@ -331,11 +360,11 @@ impl TelemetryStore {
                 "INSERT OR REPLACE INTO agg_hourly
                    (bucket, samples, cpu_usage_avg, cpu_usage_max, cpu_temp_avg, cpu_temp_max,
                     gpu_usage_avg, gpu_usage_max, gpu_temp_avg, gpu_temp_max,
-                    mem_usage_avg, mem_usage_max)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    mem_usage_avg, mem_usage_max, fps_avg, fps_max)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                 params![
                     row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10,
-                    row.11
+                    row.11, row.12, row.13
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -387,7 +416,8 @@ impl TelemetryStore {
                 "SELECT s.id, s.started_at, s.ended_at, s.app_version,
                         COUNT(x.ts),
                         AVG(x.cpu_usage), AVG(x.cpu_temp), MAX(x.cpu_temp),
-                        AVG(x.gpu_usage), AVG(x.gpu_temp), MAX(x.gpu_temp)
+                        AVG(x.gpu_usage), AVG(x.gpu_temp), MAX(x.gpu_temp),
+                        AVG(x.fps), MAX(x.fps)
                    FROM sessions s
                    LEFT JOIN samples x ON x.session_id = s.id
                   GROUP BY s.id
@@ -412,6 +442,8 @@ impl TelemetryStore {
                     gpu_usage_avg: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
                     gpu_temp_avg: r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
                     gpu_temp_max: r.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+                    fps_avg: r.get::<_, Option<f64>>(11)?.unwrap_or(0.0),
+                    fps_max: r.get::<_, Option<f64>>(12)?.unwrap_or(0.0),
                 })
             })
             .map_err(|e| e.to_string())?
@@ -446,8 +478,8 @@ impl TelemetryStore {
             let stride = (count / max_points).max(1);
             let mut stmt = conn
                 .prepare(
-                    "SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage
-                       FROM (SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage,
+                    "SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage, fps
+                       FROM (SELECT ts, cpu_usage, cpu_temp, gpu_usage, gpu_temp, mem_usage, fps,
                                     ROW_NUMBER() OVER (ORDER BY ts) AS rn
                                FROM samples WHERE ts >= ?1 AND ts <= ?2)
                       WHERE (rn - 1) % ?3 = 0
@@ -458,6 +490,7 @@ impl TelemetryStore {
                 .query_map(params![since, until, stride], |r| {
                     let cpu_t = r.get::<_, Option<f64>>(2)?.unwrap_or(0.0);
                     let gpu_t = r.get::<_, Option<f64>>(4)?.unwrap_or(0.0);
+                    let fps = r.get::<_, Option<f64>>(6)?.unwrap_or(0.0);
                     Ok(HistoryRow {
                         ts: r.get(0)?,
                         cpu_usage: r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
@@ -467,6 +500,8 @@ impl TelemetryStore {
                         gpu_temp: gpu_t,
                         gpu_temp_max: gpu_t,
                         mem_usage: r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                        fps,
+                        fps_max: fps,
                         resolution: "raw".into(),
                     })
                 })
@@ -480,7 +515,8 @@ impl TelemetryStore {
         let mut stmt = conn
             .prepare(
                 "SELECT bucket, cpu_usage_avg, cpu_temp_avg, cpu_temp_max,
-                        gpu_usage_avg, gpu_temp_avg, gpu_temp_max, mem_usage_avg
+                        gpu_usage_avg, gpu_temp_avg, gpu_temp_max, mem_usage_avg,
+                        fps_avg, fps_max
                    FROM agg_hourly
                   WHERE bucket >= ?1 AND bucket <= ?2
                   ORDER BY bucket",
@@ -497,6 +533,8 @@ impl TelemetryStore {
                     gpu_temp: r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
                     gpu_temp_max: r.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
                     mem_usage: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
+                    fps: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
+                    fps_max: r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
                     resolution: "hourly".into(),
                 })
             })
@@ -517,25 +555,28 @@ impl TelemetryStore {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|e| e.to_string())?;
-        let (samples, first_ts, last_ts, cpu_peak, gpu_peak): (
-            i64,
-            Option<i64>,
-            Option<i64>,
-            Option<f64>,
-            Option<f64>,
-        ) = conn
+        let (samples, first_ts, last_ts, cpu_peak, gpu_peak, fps_peak) = conn
             .query_row(
-                "SELECT COUNT(*), MIN(ts), MAX(ts), MAX(cpu_temp), MAX(gpu_temp) FROM samples",
+                "SELECT COUNT(*), MIN(ts), MAX(ts), MAX(cpu_temp), MAX(gpu_temp), MAX(fps) FROM samples",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                        r.get::<_, Option<f64>>(3)?,
+                        r.get::<_, Option<f64>>(4)?,
+                        r.get::<_, Option<f64>>(5)?,
+                    ))
+                },
             )
             .map_err(|e| e.to_string())?;
         // Hourly aggregates can hold older peaks than the raw window.
-        let (agg_cpu_peak, agg_gpu_peak): (Option<f64>, Option<f64>) = conn
-            .query_row(
-                "SELECT MAX(cpu_temp_max), MAX(gpu_temp_max) FROM agg_hourly",
+        let (agg_cpu_peak, agg_gpu_peak, agg_fps_peak): (Option<f64>, Option<f64>, Option<f64>) =
+            conn.query_row(
+                "SELECT MAX(cpu_temp_max), MAX(gpu_temp_max), MAX(fps_max) FROM agg_hourly",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .map_err(|e| e.to_string())?;
         let db_bytes: i64 = conn
@@ -553,6 +594,7 @@ impl TelemetryStore {
             tracked_ms: tracked,
             cpu_temp_peak: cpu_peak.unwrap_or(0.0).max(agg_cpu_peak.unwrap_or(0.0)),
             gpu_temp_peak: gpu_peak.unwrap_or(0.0).max(agg_gpu_peak.unwrap_or(0.0)),
+            fps_peak: fps_peak.unwrap_or(0.0).max(agg_fps_peak.unwrap_or(0.0)),
             db_bytes,
         })
     }
@@ -605,7 +647,9 @@ mod tests {
         let sid = store.begin_session("1.0.0-test", "host").unwrap();
         let base = now_ms() as u64;
         for i in 0..10 {
-            store.record(sid, &snap(base + i * 1000, 60.0 + i as f32, 50.0 + i as f32)).unwrap();
+            store
+                .record(sid, &snap(base + i * 1000, 60.0 + i as f32, 50.0 + i as f32), Some(120.0 + i as f32))
+                .unwrap();
         }
         store.end_session(sid).unwrap();
 
@@ -617,6 +661,8 @@ mod tests {
         assert!(s.cpu_temp_max >= 69.0); // 60 + 9
         assert!(s.gpu_temp_max >= 59.0);
         assert!(s.cpu_usage_avg > 0.0);
+        assert!(s.fps_max >= 129.0); // 120 + 9
+        assert!(s.fps_avg > 0.0);
 
         let one = store.session_summary(sid).unwrap().unwrap();
         assert_eq!(one.id, sid);
@@ -626,7 +672,7 @@ mod tests {
     fn close_stale_sessions_stamps_open_runs() {
         let store = TelemetryStore::in_memory().unwrap();
         let sid = store.begin_session("v", "h").unwrap();
-        store.record(sid, &snap(now_ms() as u64, 55.0, 45.0)).unwrap();
+        store.record(sid, &snap(now_ms() as u64, 55.0, 45.0), None).unwrap();
         // Simulate a crash: session left open. A fresh boot closes it.
         let closed = store.close_stale_sessions().unwrap();
         assert_eq!(closed, 1);
@@ -640,7 +686,7 @@ mod tests {
         let sid = store.begin_session("v", "h").unwrap();
         let base = now_ms();
         for i in 0..50 {
-            store.record(sid, &snap((base + i * 1000) as u64, 50.0, 40.0)).unwrap();
+            store.record(sid, &snap((base + i * 1000) as u64, 50.0, 40.0), None).unwrap();
         }
         let rows = store.history(base - 1000, base + 60_000, 1000).unwrap();
         assert_eq!(rows.len(), 50);
@@ -655,7 +701,7 @@ mod tests {
         let sid = store.begin_session("v", "h").unwrap();
         let base = now_ms();
         for i in 0..400 {
-            store.record(sid, &snap((base + i * 100) as u64, 50.0, 40.0)).unwrap();
+            store.record(sid, &snap((base + i * 100) as u64, 50.0, 40.0), None).unwrap();
         }
         let rows = store.history(base - 1000, base + 60_000, 50).unwrap();
         // Down-sampled to roughly max_points (stride = 400/50 = 8 → ~50 rows).
@@ -671,7 +717,7 @@ mod tests {
         let three_h_ago = now_ms() - 3 * HOUR_MS;
         for i in 0..6 {
             store
-                .record(sid, &snap((three_h_ago + i * 60_000) as u64, 70.0 + i as f32, 60.0))
+                .record(sid, &snap((three_h_ago + i * 60_000) as u64, 70.0 + i as f32, 60.0), None)
                 .unwrap();
         }
         let written = store.aggregate().unwrap();
@@ -694,14 +740,15 @@ mod tests {
         let store = TelemetryStore::in_memory().unwrap();
         let sid = store.begin_session("v", "h").unwrap();
         let base = now_ms() as u64;
-        store.record(sid, &snap(base, 88.0, 77.0)).unwrap();
-        store.record(sid, &snap(base + 1000, 60.0, 50.0)).unwrap();
+        store.record(sid, &snap(base, 88.0, 77.0), Some(165.0)).unwrap();
+        store.record(sid, &snap(base + 1000, 60.0, 50.0), Some(90.0)).unwrap();
         store.end_session(sid).unwrap();
         let s = store.stats().unwrap();
         assert_eq!(s.sessions, 1);
         assert_eq!(s.samples, 2);
         assert!(s.cpu_temp_peak >= 88.0);
         assert!(s.gpu_temp_peak >= 77.0);
+        assert!(s.fps_peak >= 165.0);
         assert!(s.db_bytes > 0);
     }
 }

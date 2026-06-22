@@ -290,7 +290,10 @@ pub fn run() {
                         let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
                         if last_store.elapsed().as_millis() >= STORE_EVERY_MS {
                             if let Some(sid) = stream_store.current_session() {
-                                let _ = stream_store.record(sid, &snapshot);
+                                // `None` FPS for now — a frame-rate source (e.g.
+                                // MangoHud) can supply real values later without a
+                                // schema change.
+                                let _ = stream_store.record(sid, &snapshot, None);
                             }
                             last_store = std::time::Instant::now();
                         }
