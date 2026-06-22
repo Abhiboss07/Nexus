@@ -5,6 +5,7 @@ import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
 import { BackgroundCanvas } from "@/components/background/background-canvas";
 import { CommandPalette } from "@/components/command/command-palette";
+import { NotificationDrawer } from "@/components/notifications/notification-drawer";
 import { SetupWizard } from "@/components/shell/setup-wizard";
 import { RenderCountOverlay } from "@/components/dev/render-count";
 import { PerfOverlay } from "@/components/dev/perf-overlay";
@@ -29,6 +30,7 @@ export function AppShell() {
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
       <BackgroundCanvas />
       <CommandPalette />
+      <NotificationDrawer />
       <SetupWizard />
       <RenderCountOverlay />
       <PerfOverlay />

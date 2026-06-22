@@ -43,8 +43,30 @@ import type { HealthCheck, Permissions } from "@/lib/system-types";
 import type { ScanCategory, Severity, SystemScan, FileEntry } from "@/lib/sysdoctor-types";
 import { formatBytes } from "@/lib/format";
 import { useRenderCount } from "@/components/dev/render-count";
+import { notify } from "@/store/notification-store";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
+
+/** Raise a notification summarizing a completed Doctor scan. */
+function notifyScanDone(s: SystemScan | null) {
+  if (!s) {
+    notify({ kind: "doctor", severity: "info", title: "Doctor scan complete", body: "No scan data." });
+    return;
+  }
+  const issues = s.categories
+    .flatMap((c) => c.findings)
+    .filter((f) => f.severity === "warning" || f.severity === "high" || f.severity === "critical");
+  const serious = issues.filter((f) => f.severity === "high" || f.severity === "critical").length;
+  notify({
+    kind: "doctor",
+    severity: serious > 0 ? "warning" : "success",
+    title: "Doctor scan complete",
+    body:
+      issues.length === 0
+        ? `Health ${s.score}/100 — all clear.`
+        : `Health ${s.score}/100 · ${issues.length} item(s) need attention.`,
+  });
+}
 
 const DEMO_HEALTH: HealthCheck = {
   passed: 8,
@@ -119,12 +141,14 @@ export default function DoctorPage() {
       setHealth(h);
       setPerms(p);
       setScan(s);
+      notifyScanDone(s);
     } else {
       await new Promise((r) => setTimeout(r, 700));
       if (id !== runId.current) return;
       setHealth(DEMO_HEALTH);
       setPerms(DEMO_PERMS);
       setScan(null);
+      notify({ kind: "doctor", severity: "info", title: "Doctor scan complete", body: "Demo — no real issues." });
     }
     setPhase("done");
   }

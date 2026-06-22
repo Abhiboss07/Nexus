@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TelemetryProvider } from "@/providers/telemetry-provider";
 import { useIntelligencePoller } from "@/hooks/use-intelligence";
 import { InstallManager } from "@/components/integrations/install-manager";
+import { NotificationManager } from "@/components/notifications/notification-manager";
 
 /** Runs the single global intelligence poll; renders nothing. */
 function IntelligencePoller() {
@@ -34,6 +35,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <TelemetryProvider>
         <IntelligencePoller />
         <InstallManager />
+        <NotificationManager />
         {children}
       </TelemetryProvider>
     </QueryClientProvider>

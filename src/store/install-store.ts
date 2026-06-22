@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { isTauri, installIntegration } from "@/lib/ipc";
+import { notify } from "@/store/notification-store";
 import type { InstallPhase, InstallProgress } from "@/lib/integrations-types";
 
 /**
@@ -93,6 +94,7 @@ export const useInstallStore = create<InstallState>((set, get) => ({
           window.clearInterval(timer);
           patch({ phase: "installed", version: "1.0.0", percent: 100 });
           set((s) => ({ completedTick: s.completedTick + 1 }));
+          notify({ kind: "integration", severity: "success", title: `${name} installed`, body: "Installed via Flatpak." });
         }
       }, 350);
       return;
@@ -113,6 +115,16 @@ export const useInstallStore = create<InstallState>((set, get) => ({
     set((s) => {
       const prev = s.jobs[p.flatpakId];
       if (!prev) return s;
+      // Raise a notification once, on the transition into "installed".
+      if (p.phase === "installed" && prev.phase !== "installed") {
+        const version = p.version ?? prev.version;
+        notify({
+          kind: "integration",
+          severity: "success",
+          title: `${prev.name} installed`,
+          body: version ? `Version ${version}` : "Installed via Flathub.",
+        });
+      }
       const job: InstallJob = {
         ...prev,
         phase: p.phase,

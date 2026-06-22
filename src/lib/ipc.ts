@@ -61,6 +61,7 @@ import type {
   FpsAnalysis,
   TrendReport,
 } from "./gaming-types";
+import type { AppNotification } from "./notification-types";
 import type {
   CompatibilityReport,
   HealthCheck,
@@ -400,6 +401,25 @@ export async function onTelemetry(
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<Snapshot>(TELEMETRY_EVENT, (e) => handler(e.payload));
+}
+
+/* ----- Notification Center ----- */
+
+export const notifAdd = (kind: string, severity: string, title: string, body = "") =>
+  invoke<AppNotification>("notif_add", { kind, severity, title, body });
+export const notifList = (limit?: number) => invoke<AppNotification[]>("notif_list", { limit });
+export const notifUnread = () => invoke<number>("notif_unread");
+export const notifMarkRead = (id: number) => invoke<void>("notif_mark_read", { id });
+export const notifMarkAllRead = () => invoke<void>("notif_mark_all_read");
+export const notifClear = () => invoke<void>("notif_clear");
+
+/** Subscribe to new-notification events. Returns an unlisten function. */
+export async function onNotification(
+  handler: (n: AppNotification) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<AppNotification>("notification://new", (e) => handler(e.payload));
 }
 
 /** Subscribe to install-progress events. Returns an unlisten function. */
