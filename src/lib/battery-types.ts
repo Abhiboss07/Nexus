@@ -76,19 +76,6 @@ export interface BatteryReport {
   recommendations: BatteryRecommendation[];
 }
 
-/** Raw battery sysfs values (diagnostics). Mirrors collectors::BatteryDebug. */
-export interface BatteryDebug {
-  path: string | null;
-  present: boolean;
-  status: string | null;
-  capacity: number | null;
-  powerNow: number | null;
-  currentNow: number | null;
-  voltageNow: number | null;
-  chargeNow: number | null;
-  energyNow: number | null;
-}
-
 /** Evidence for whether Linux can cap this battery's charge level (Task 4). */
 export interface ChargeLimitProbe {
   path: string;

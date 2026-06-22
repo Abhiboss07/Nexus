@@ -17,7 +17,7 @@ import type {
   NexusProfile,
   PowerInfo,
 } from "./power-types";
-import type { BatteryReport, BatterySample, BatteryDebug, ChargeLimitEvidence } from "./battery-types";
+import type { BatteryReport, BatterySample, ChargeLimitEvidence } from "./battery-types";
 import type { StorageAnalysis, SystemScan } from "./sysdoctor-types";
 import type { Plugin } from "./plugins-types";
 import type { OptimizerReport } from "./optimizer-types";
@@ -185,8 +185,6 @@ export const getBatteryHistory = () => invoke<BatterySample[]>("get_battery_hist
 export const exportBatteryReport = () => invoke<string | null>("export_battery_report");
 export const getChargeLimitEvidence = () =>
   invoke<ChargeLimitEvidence>("get_charge_limit_evidence");
-/** Raw battery sysfs values for the diagnostics panel. */
-export const getBatteryDebug = () => invoke<BatteryDebug>("get_battery_debug");
 export const setChargeLimit = (percent: number) =>
   invoke<string>("set_charge_limit", { percent });
 export const getFanInfo = () => invoke<FanInfo>("get_fan_info");

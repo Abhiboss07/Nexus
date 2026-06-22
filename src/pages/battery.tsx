@@ -37,7 +37,7 @@ import { Meter } from "@/components/ui/progress";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { RouteFallback } from "@/components/shell/route-fallback";
 import { useShallow } from "zustand/react/shallow";
-import { useBattery, useCapability, useTelemetrySource } from "@/hooks/use-telemetry";
+import { useCapability } from "@/hooks/use-telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { useReduceMotion } from "@/store/prefs-store";
 import { useBatteryEventsStore } from "@/store/battery-events-store";
@@ -45,10 +45,9 @@ import { useBatteryIntel } from "@/hooks/use-battery-intel";
 import {
   isTauri,
   getChargeLimitEvidence,
-  getBatteryDebug,
   setChargeLimit as applyChargeLimit,
 } from "@/lib/ipc";
-import { isCharging, type BatteryDebug, type ChargeLimitEvidence } from "@/lib/battery-types";
+import { isCharging, type ChargeLimitEvidence } from "@/lib/battery-types";
 import type { CapabilityStatus } from "@/lib/capability-types";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
@@ -159,11 +158,6 @@ export default function BatteryPage() {
             </GlassCard>
           </motion.div>
         </div>
-
-        {/* Temporary diagnostics — verify charging state against raw sysfs. */}
-        <motion.div variants={fadeUp} className="mt-md">
-          <BatteryDebugPanel />
-        </motion.div>
 
         {/* Health + lifespan + cycle analytics */}
         <div className="mt-md grid grid-cols-1 gap-md lg:grid-cols-3">
@@ -495,69 +489,6 @@ function BatteryGlyph({ level, charging }: { level: number; charging: boolean })
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-/**
- * Temporary battery diagnostics — exposes the full chain so a "stuck charging"
- * symptom can be traced: telemetry source → live snapshot status → derived
- * isCharging(), against the RAW `/sys/class/power_supply/BAT*` values. If the
- * live status and raw status disagree it's a Nexus bug; if they agree (e.g. both
- * "discharging" after unplug) the UI is correct.
- */
-function BatteryDebugPanel() {
-  const live = useBattery();
-  const source = useTelemetrySource();
-  const [raw, setRaw] = useState<BatteryDebug | null>(null);
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    const load = () => getBatteryDebug().then(setRaw).catch(() => {});
-    load();
-    const t = window.setInterval(load, 2000);
-    return () => window.clearInterval(t);
-  }, []);
-
-  const liveStatus = live?.status ?? null;
-  const derived = liveStatus ? isCharging(liveStatus) : null;
-  const w = (uw: number | null | undefined) => (uw != null ? `${(uw / 1_000_000).toFixed(2)} W` : "—");
-  const a = (ua: number | null | undefined) => (ua != null ? `${(ua / 1_000_000).toFixed(3)} A` : "—");
-  const v = (uv: number | null | undefined) => (uv != null ? `${(uv / 1_000_000).toFixed(2)} V` : "—");
-
-  const rows: [string, string][] = [
-    ["Telemetry source", source],
-    ["Live status", liveStatus ?? "—"],
-    ["isCharging(live)", derived == null ? "—" : derived ? "true" : "false"],
-    ["Live charge", live ? `${live.chargePercent.toFixed(0)}%` : "—"],
-    ["Raw status (sysfs)", raw?.status ?? (isTauri() ? "…" : "n/a (demo)")],
-    ["Raw capacity", raw?.capacity != null ? `${raw.capacity}%` : "—"],
-    ["power_now", w(raw?.powerNow)],
-    ["current_now", a(raw?.currentNow)],
-    ["voltage_now", v(raw?.voltageNow)],
-    ["Path", raw?.path ?? "—"],
-  ];
-
-  // Flag a real mismatch between what Nexus shows and the raw kernel status.
-  const rawCharging = raw?.status ? isCharging(raw.status) : null;
-  const mismatch = derived != null && rawCharging != null && derived !== rawCharging;
-
-  return (
-    <GlassCard padding="lg">
-      <div className="mb-md flex flex-wrap items-center gap-sm">
-        <Badge variant="warning">DEBUG</Badge>
-        <p className="text-sm font-semibold text-content">Battery diagnostics</p>
-        <span className="text-2xs text-content-subtle">temporary — raw values to verify charging state</span>
-        {mismatch && <Badge variant="danger">UI ≠ kernel</Badge>}
-      </div>
-      <div className="grid grid-cols-1 gap-x-lg gap-y-2xs sm:grid-cols-2 lg:grid-cols-3">
-        {rows.map(([k, val]) => (
-          <div key={k} className="flex items-center justify-between gap-md border-b border-border-subtle/50 py-2xs">
-            <span className="shrink-0 text-2xs text-content-subtle">{k}</span>
-            <span className="truncate text-2xs font-mono text-content" title={val}>{val}</span>
-          </div>
-        ))}
-      </div>
-    </GlassCard>
   );
 }
 
