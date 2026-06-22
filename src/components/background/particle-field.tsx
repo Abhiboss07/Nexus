@@ -37,7 +37,9 @@ export function ParticleField({ density = 0.00006 }: { density?: number }) {
     let particles: P[] = [];
 
     const paused = () =>
-      document.hidden || document.documentElement.dataset.ambientPaused === "true";
+      document.hidden ||
+      document.documentElement.dataset.ambientPaused === "true" ||
+      document.documentElement.dataset.scrolling === "true";
 
     function resize() {
       const rect = canvas!.getBoundingClientRect();

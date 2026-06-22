@@ -195,6 +195,26 @@
     animation-play-state: paused !important;
   }
 
+  /* Scroll-time degradation (set by useScrollPerf). While actively scrolling,
+     drop the per-frame backdrop-filter re-sample — the dominant compositor cost
+     on a long glass page — swapping in a near-identical solid surface fill, and
+     pause ambient motion. Full glass + motion return the instant scrolling
+     stops, so it's invisible at rest. */
+  html[data-scrolling="true"] .glass {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgb(var(--color-surface) / 0.92);
+  }
+  html[data-scrolling="true"] .glass-strong {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  html[data-scrolling="true"] .animate-aurora-shift,
+  html[data-scrolling="true"] .animate-grid-pan,
+  html[data-scrolling="true"] .animate-pulse-glow {
+    animation-play-state: paused !important;
+  }
+
   /* Defer paint/layout of long-page sections until they scroll near the
      viewport. `auto` lets the engine remember the real size after first render,
      so the reserved intrinsic size is only an initial estimate. Big win on the
