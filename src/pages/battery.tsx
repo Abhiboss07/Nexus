@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   BatteryCharging,
   Heart,
@@ -38,6 +38,7 @@ import { SectionTitle, StatRow } from "@/components/ui/section";
 import { RouteFallback } from "@/components/shell/route-fallback";
 import { useBattery, useCapability } from "@/hooks/use-telemetry";
 import { useReduceMotion } from "@/store/prefs-store";
+import { useBatteryEventsStore } from "@/store/battery-events-store";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
 import {
   isTauri,
@@ -358,25 +359,44 @@ function batteryTone(level: number): "success" | "iris" | "warning" | "danger" {
 
 /**
  * Premium vertical battery: liquid fill synced to the live level, color by
- * charge band, and (while charging, motion permitting) a pulsing glow + upward
- * energy shimmer. Continuous effects are gated behind reduce-motion so Battery
- * Saver / "animations off" keeps it static and cheap.
+ * charge band, a configurable charging animation (Pulse / Electric / Neon /
+ * Minimal / None) and a one-shot disconnect effect (Fade / Ripple / Battery
+ * Drain / Minimal / None). All continuous + transition effects are gated behind
+ * reduce-motion so Battery Saver / "animations off" keeps it static and cheap.
  */
 function BatteryGlyph({ level, charging }: { level: number; charging: boolean }) {
   const reduce = useReduceMotion();
+  const connectAnim = useBatteryEventsStore((s) => s.connectAnim);
+  const disconnectAnim = useBatteryEventsStore((s) => s.disconnectAnim);
   const tone = batteryTone(level);
   const fillPct = Math.max(3, Math.min(100, level));
-  const animate = charging && !reduce;
+
+  const animating = charging && !reduce && connectAnim !== "none";
+  const neon = connectAnim === "neon";
+  const showGlow = animating && (connectAnim === "pulse" || connectAnim === "electric" || neon);
+  const showShimmer = animating && (connectAnim === "electric" || neon);
   const glow = (a: number) => `0 0 26px rgb(var(--color-${tone}) / ${a})`;
+
+  // One-shot disconnect effect, retriggered on each charging true→false edge.
+  const prevCharging = useRef(charging);
+  const [disc, setDisc] = useState(0);
+  useEffect(() => {
+    if (prevCharging.current && !charging && !reduce && disconnectAnim !== "none") {
+      setDisc((n) => n + 1);
+    }
+    prevCharging.current = charging;
+  }, [charging, reduce, disconnectAnim]);
+  const done = () => setDisc(0);
 
   return (
     <div className="relative grid shrink-0 place-items-center">
       {/* terminal nub */}
       <div className="h-2 w-7 rounded-t-md bg-border-strong" />
       <motion.div
-        className="relative h-36 w-20 rounded-2xl border-2 border-border-strong bg-surface-sunken"
-        animate={animate ? { boxShadow: [glow(0), glow(0.55), glow(0)] } : { boxShadow: glow(0) }}
-        transition={animate ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.4 }}
+        className="relative h-36 w-20 rounded-2xl border-2 bg-surface-sunken"
+        style={{ borderColor: neon ? `rgb(var(--color-${tone}))` : "rgb(var(--color-border-strong))" }}
+        animate={showGlow ? { boxShadow: [glow(0), glow(neon ? 0.85 : 0.55), glow(0)] } : { boxShadow: glow(0) }}
+        transition={showGlow ? { duration: neon ? 1.3 : 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.4 }}
       >
         {/* fill track */}
         <div className="absolute inset-1.5 overflow-hidden rounded-xl">
@@ -389,24 +409,72 @@ function BatteryGlyph({ level, charging }: { level: number; charging: boolean })
             animate={{ height: `${fillPct}%` }}
             transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
           >
-            {/* liquid surface highlight */}
             <div className="absolute inset-x-0 top-0 h-1.5 bg-white/30" />
-            {/* charging energy shimmer */}
-            {animate && (
+            {showShimmer && (
               <motion.div
                 className="absolute inset-x-0 h-10 bg-gradient-to-t from-transparent via-white/25 to-transparent"
                 initial={{ y: "120%" }}
                 animate={{ y: "-130%" }}
-                transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}
+                transition={{ duration: neon ? 1.2 : 1.7, repeat: Infinity, ease: "easeInOut" }}
               />
             )}
           </motion.div>
+
+          {/* disconnect: battery-drain wipe (top→down over the fill) */}
+          <AnimatePresence>
+            {disc > 0 && disconnectAnim === "drain" && (
+              <motion.div
+                key={`drain-${disc}`}
+                className="absolute inset-x-0 top-0 bg-surface-sunken"
+                initial={{ height: "0%" }}
+                animate={{ height: "100%" }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.6, ease: "easeIn" }}
+                onAnimationComplete={done}
+              />
+            )}
+          </AnimatePresence>
         </div>
+
+        {/* disconnect: ripple ring from center */}
+        <AnimatePresence>
+          {disc > 0 && disconnectAnim === "ripple" && (
+            <motion.div
+              key={`ripple-${disc}`}
+              className="pointer-events-none absolute inset-0 m-auto h-6 w-6 rounded-full border-2"
+              style={{ borderColor: `rgb(var(--color-${tone}))` }}
+              initial={{ scale: 0.3, opacity: 0.85 }}
+              animate={{ scale: 4.2, opacity: 0 }}
+              transition={{ duration: 0.7, ease: "easeOut" }}
+              onAnimationComplete={done}
+            />
+          )}
+        </AnimatePresence>
+
         {/* charging bolt */}
         {charging && (
-          <BatteryCharging className="absolute inset-0 z-10 m-auto h-9 w-9 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]" />
+          <BatteryCharging
+            className={cn(
+              "absolute inset-0 z-10 m-auto h-9 w-9 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]",
+              neon && "drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]",
+            )}
+          />
         )}
       </motion.div>
+
+      {/* disconnect: fade / minimal flash over the whole glyph */}
+      <AnimatePresence>
+        {disc > 0 && (disconnectAnim === "fade" || disconnectAnim === "minimal") && (
+          <motion.div
+            key={`fade-${disc}`}
+            className="pointer-events-none absolute inset-0 rounded-2xl bg-canvas"
+            initial={{ opacity: disconnectAnim === "fade" ? 0.6 : 0.3 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: disconnectAnim === "fade" ? 0.7 : 0.35 }}
+            onAnimationComplete={done}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

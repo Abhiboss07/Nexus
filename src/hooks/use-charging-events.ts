@@ -3,6 +3,8 @@ import { useTelemetryStore } from "@/store/telemetry-store";
 import { pushToast } from "@/store/toast-store";
 import { notify } from "@/store/notification-store";
 import { isCharging } from "@/lib/battery-types";
+import { useBatteryEventsStore } from "@/store/battery-events-store";
+import { playSound } from "@/lib/sound";
 
 /**
  * Detects AC connect / disconnect (charging-state edges) from live telemetry and
@@ -31,15 +33,23 @@ export function useChargingEvents() {
         `[charging] ${charging ? "AC connected" : "AC disconnected"} — status="${bat.status}" charge=${bat.chargePercent.toFixed(0)}%`,
       );
 
+      const prefs = useBatteryEventsStore.getState();
+      const sound = (choice: "connect" | "disconnect") => {
+        if (!prefs.soundEnabled) return;
+        if (choice === "connect") playSound(prefs.connectSound, prefs.connectCustom, prefs.volume);
+        else playSound(prefs.disconnectSound, prefs.disconnectCustom, prefs.volume);
+      };
+
       if (charging) {
         pushToast({
           tone: "success",
           icon: "charging",
-          electric: true,
+          electric: prefs.connectAnim === "electric" || prefs.connectAnim === "neon",
           title: "AC Power Connected",
           body: `Charging · ${bat.chargePercent.toFixed(0)}%`,
         });
         notify({ kind: "battery", severity: "info", title: "AC power connected", body: "Charging started." });
+        sound("connect");
       } else {
         pushToast({
           tone: "info",
@@ -48,6 +58,7 @@ export function useChargingEvents() {
           body: `${bat.chargePercent.toFixed(0)}% · unplugged`,
         });
         notify({ kind: "battery", severity: "info", title: "Running on battery", body: "Unplugged from AC." });
+        sound("disconnect");
       }
     });
     return () => unsub();
