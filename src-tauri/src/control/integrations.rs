@@ -285,14 +285,20 @@ pub fn detect_all() -> Vec<Integration> {
     }
 
     // ---- Gaming tools ----
+    // NOTE: MangoHud has NO standalone Flathub app — it only ships as the Vulkan
+    // layer extension `org.freedesktop.Platform.VulkanLayer.MangoHud`, which is
+    // branch-versioned and NOT installable as a one-click app ref (the old
+    // flatpak_id made every install fail with "isn't available on Flathub").
+    // On Arch/CachyOS the real source is the official `mangohud` package
+    // (+ `lib32-mangohud` for 32-bit games), so we present that instead.
     t!(
         "mangohud",
         "MangoHud",
         "gaming",
         &["mangohud"],
         Some(("mangohud", &["--version"][..])),
-        Some("org.freedesktop.Platform.VulkanLayer.MangoHud"),
-        "sudo pacman -S mangohud",
+        None,
+        "sudo pacman -S mangohud lib32-mangohud",
         "https://github.com/flightlessmango/MangoHud"
     );
     t!(
@@ -803,23 +809,156 @@ pub fn ensure_ready(flatpak_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Phase 2 — the actual (slow) install.
-pub fn run_install(flatpak_id: &str) -> Result<(), String> {
-    let out = std::process::Command::new("flatpak")
-        .args([
-            "install",
-            "-y",
-            "--user",
-            "--noninteractive",
-            "flathub",
-            flatpak_id,
-        ])
+/// Download + installed size of a flathub ref, parsed from `remote-info`. Both
+/// fields are best-effort (`None` when flatpak can't resolve the ref or the
+/// output format changes) so the UI can show "≈ N MB to download" before the
+/// install starts and compute transferred/ETA during it.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSize {
+    pub download_bytes: Option<u64>,
+    pub installed_bytes: Option<u64>,
+}
+
+pub fn remote_size(flatpak_id: &str) -> RemoteSize {
+    let mut size = RemoteSize::default();
+    if flatpak_id.is_empty() || which("flatpak").is_none() {
+        return size;
+    }
+    let Ok(out) = std::process::Command::new("flatpak")
+        .args(["remote-info", "--user", "flathub", flatpak_id])
         .output()
+    else {
+        return size;
+    };
+    if !out.status.success() {
+        return size;
+    }
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let l = line.trim();
+        if let Some(v) = l.strip_prefix("Download:") {
+            size.download_bytes = parse_human_size(v);
+        } else if let Some(v) = l.strip_prefix("Installed:") {
+            size.installed_bytes = parse_human_size(v);
+        }
+    }
+    size
+}
+
+/// Parse a flatpak human size like "118.3 MB", "1.2 GiB", "512 kB (partial)"
+/// into bytes (binary multipliers, matching flatpak's own accounting).
+fn parse_human_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let num_end = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
+    let val: f64 = s[..num_end].trim().parse().ok()?;
+    let unit: String = s[num_end..]
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let mult: f64 = match unit.as_str() {
+        "b" | "" => 1.0,
+        "kb" | "kib" | "k" => 1024.0,
+        "mb" | "mib" | "m" => 1024.0 * 1024.0,
+        "gb" | "gib" | "g" => 1024.0 * 1024.0 * 1024.0,
+        "tb" | "tib" | "t" => 1024.0f64.powi(4),
+        _ => return None,
+    };
+    Some((val * mult) as u64)
+}
+
+/// Extract a percentage (e.g. "42%") from a progress fragment, scanning bytes so
+/// flatpak's Unicode progress-bar glyphs don't trip up parsing. Returns the last
+/// valid 0–100 value found.
+fn parse_percent(frag: &[u8]) -> Option<u32> {
+    let mut best = None;
+    for (i, &b) in frag.iter().enumerate() {
+        if b == b'%' {
+            let mut j = i;
+            while j > 0 && frag[j - 1].is_ascii_digit() {
+                j -= 1;
+            }
+            if j < i {
+                if let Ok(v) = std::str::from_utf8(&frag[j..i]).unwrap_or("").parse::<u32>() {
+                    if v <= 100 {
+                        best = Some(v);
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Phase 2 — the actual (slow) install, streaming flatpak's progress. `on_percent`
+/// is invoked with the overall completion percent (0–100) as flatpak reports it;
+/// flatpak draws its bar with carriage returns, so we read raw bytes and split on
+/// `\r`/`\n`. When flatpak emits no parseable percent the callback simply never
+/// fires and the UI keeps its phase-based indeterminate state — nothing is faked.
+pub fn run_install(flatpak_id: &str, mut on_percent: impl FnMut(u32)) -> Result<(), String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+
+    // NOTE: no `--noninteractive` here — that flag suppresses progress output.
+    let mut child = Command::new("flatpak")
+        .args(["install", "-y", "--user", "flathub", flatpak_id])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Couldn't launch flatpak: {e}"))?;
-    if out.status.success() {
+
+    // Drain stderr on a thread so a full pipe can never deadlock the install;
+    // keep its text for humanized error reporting.
+    let mut stderr = child.stderr.take();
+    let err_handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(s) = stderr.as_mut() {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+
+    if let Some(mut stdout) = child.stdout.take() {
+        let mut chunk = [0u8; 4096];
+        let mut frag: Vec<u8> = Vec::with_capacity(128);
+        let mut last = u32::MAX;
+        loop {
+            match stdout.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    for &b in &chunk[..n] {
+                        if b == b'\r' || b == b'\n' {
+                            if let Some(p) = parse_percent(&frag) {
+                                if p != last {
+                                    last = p;
+                                    on_percent(p);
+                                }
+                            }
+                            frag.clear();
+                        } else {
+                            frag.push(b);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        if let Some(p) = parse_percent(&frag) {
+            if p != last {
+                on_percent(p);
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("flatpak failed: {e}"))?;
+    let stderr = err_handle.join().unwrap_or_default();
+    if status.success() {
         Ok(())
     } else {
-        Err(humanize_flatpak_error(&String::from_utf8_lossy(&out.stderr)))
+        Err(humanize_flatpak_error(&stderr))
     }
 }
 
@@ -864,5 +1003,39 @@ pub fn installed_flatpak_version(flatpak_id: &str) -> Option<String> {
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .find_map(|l| l.trim().strip_prefix("Version:").map(|v| v.trim().to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn human_size_parses_flatpak_units() {
+        assert_eq!(parse_human_size("512 B"), Some(512));
+        assert_eq!(parse_human_size("1 kB"), Some(1024));
+        assert_eq!(parse_human_size("118.3 MB"), Some((118.3 * 1024.0 * 1024.0) as u64));
+        assert_eq!(parse_human_size("1.5 GiB"), Some((1.5 * 1024.0 * 1024.0 * 1024.0) as u64));
+        // Trailing annotations like "(partial)" must not break parsing.
+        assert_eq!(parse_human_size("412.7 MB (partial)"), Some((412.7 * 1024.0 * 1024.0) as u64));
+    }
+
+    #[test]
+    fn human_size_rejects_garbage() {
+        assert_eq!(parse_human_size(""), None);
+        assert_eq!(parse_human_size("lots"), None);
+        assert_eq!(parse_human_size("12 parsecs"), None);
+    }
+
+    #[test]
+    fn percent_extracted_from_progress_fragment() {
+        assert_eq!(parse_percent(b"Installing 1/2 42%"), Some(42));
+        assert_eq!(parse_percent("█████░░░░ 55% • 8.1 MB/s".as_bytes()), Some(55));
+        // No percent token → None (UI keeps the indeterminate bar).
+        assert_eq!(parse_percent(b"Looking for matches..."), None);
+        // Out-of-range values are ignored.
+        assert_eq!(parse_percent(b"999%"), None);
+        // Last valid value wins when several appear.
+        assert_eq!(parse_percent(b"10% ... 73%"), Some(73));
+    }
 }
 

@@ -529,19 +529,30 @@ pub async fn get_integrations() -> Result<Vec<Integration>, String> {
 }
 
 /// Progress event for a one-click install, emitted on `integration-progress`.
-/// Phases are REAL backend steps (no fabricated percentages): preparing →
-/// installing → verifying → installed | failed.
-#[derive(Clone, serde::Serialize)]
+/// Phases are REAL backend steps: preparing → installing → verifying → installed
+/// | failed. Sizes come from flatpak's own `remote-info`; `percent`/`eta_secs`
+/// are populated only while flatpak streams a real percentage (`None` otherwise
+/// — the UI falls back to an indeterminate bar, never a fabricated number).
+#[derive(Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallProgress {
     flatpak_id: String,
     phase: String,
     version: Option<String>,
+    /// Total bytes to download (from `remote-info`), when known.
+    download_bytes: Option<u64>,
+    /// Bytes downloaded so far (estimated from percent × total), when known.
+    transferred_bytes: Option<u64>,
+    /// Overall completion 0–100, when flatpak reports it.
+    percent: Option<u32>,
+    /// Estimated seconds remaining, when computable.
+    eta_secs: Option<u64>,
 }
 
 /// One-click flatpak install for an integration (user-level, no sudo). Async:
 /// `flatpak install` blocks for a while; keep it off the UI thread. Emits
-/// `integration-progress` events so the UI can show a live state machine.
+/// `integration-progress` events so the UI can show a live state machine with
+/// real download size, transferred/total, percent and ETA when available.
 #[tauri::command]
 pub async fn install_integration(
     app: tauri::AppHandle,
@@ -550,23 +561,55 @@ pub async fn install_integration(
     use crate::control::integrations as ig;
     use tauri::Emitter;
     tauri::async_runtime::spawn_blocking(move || {
-        let emit = |phase: &str, version: Option<String>| {
+        let emit = |progress: InstallProgress| {
+            let _ = app.emit("integration-progress", progress);
+        };
+        let base = |phase: &str| InstallProgress {
+            flatpak_id: flatpak_id.clone(),
+            phase: phase.into(),
+            ..Default::default()
+        };
+
+        emit(base("preparing"));
+        ig::ensure_ready(&flatpak_id)?;
+
+        // Real download size up front (flatpak's own accounting).
+        let size = ig::remote_size(&flatpak_id);
+        let total = size.download_bytes;
+        emit(InstallProgress {
+            download_bytes: total,
+            ..base("installing")
+        });
+
+        let started = std::time::Instant::now();
+        ig::run_install(&flatpak_id, |pct| {
+            let transferred = total.map(|t| ((t as f64) * (pct as f64) / 100.0) as u64);
+            let elapsed = started.elapsed().as_secs();
+            let eta = if pct > 0 && pct < 100 {
+                Some(elapsed.saturating_mul((100 - pct) as u64) / pct as u64)
+            } else {
+                None
+            };
             let _ = app.emit(
                 "integration-progress",
                 InstallProgress {
                     flatpak_id: flatpak_id.clone(),
-                    phase: phase.into(),
-                    version,
+                    phase: "installing".into(),
+                    download_bytes: total,
+                    transferred_bytes: transferred,
+                    percent: Some(pct),
+                    eta_secs: eta,
+                    version: None,
                 },
             );
-        };
-        emit("preparing", None);
-        ig::ensure_ready(&flatpak_id)?;
-        emit("installing", None);
-        ig::run_install(&flatpak_id)?;
-        emit("verifying", None);
+        })?;
+
+        emit(base("verifying"));
         let version = ig::installed_flatpak_version(&flatpak_id);
-        emit("installed", version.clone());
+        emit(InstallProgress {
+            version: version.clone(),
+            ..base("installed")
+        });
         Ok(match version {
             Some(v) => format!("Installed · v{v}"),
             None => "Installed via Flathub.".into(),

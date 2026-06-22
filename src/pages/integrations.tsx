@@ -38,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { SectionTitle } from "@/components/ui/section";
 import { useIntegrations } from "@/hooks/use-integrations";
 import { onIntegrationProgress } from "@/lib/ipc";
+import { formatBytes } from "@/lib/format";
 import type {
   Integration,
   IntegrationCategory,
@@ -217,8 +218,8 @@ const PHASE_LABEL: Record<InstallPhase, string> = {
 };
 const ACTIVE_PHASES: InstallPhase[] = ["queued", "preparing", "installing", "verifying"];
 
-/** Slim indeterminate bar — flatpak gives no reliable % in non-interactive mode,
- *  so we honestly show motion + the real current step rather than a fake %. */
+/** Slim indeterminate bar — used until flatpak reports a real percentage; we
+ *  honestly show motion + the current step rather than a fake %. */
 function IndeterminateBar() {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
@@ -229,6 +230,34 @@ function IndeterminateBar() {
       />
     </div>
   );
+}
+
+/** Determinate bar — shown once flatpak reports a real completion percent. */
+function DeterminateBar({ percent }: { percent: number }) {
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+      <div
+        className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+        style={{ width: `${Math.max(2, Math.min(100, percent))}%` }}
+      />
+    </div>
+  );
+}
+
+/** Compact ETA, e.g. "8s" or "1m 20s". */
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+/** Live install telemetry surfaced from `integration-progress` events. */
+interface InstallStats {
+  percent: number | null;
+  downloadBytes: number | null;
+  transferredBytes: number | null;
+  etaSecs: number | null;
 }
 
 function IntegrationCard({ item, health, install, uninstall, open }: {
@@ -242,6 +271,7 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
   const [phase, setPhase] = useState<InstallPhase | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [stats, setStats] = useState<InstallStats>({ percent: null, downloadBytes: null, transferredBytes: null, etaSecs: null });
   const [error, setError] = useState<string | null>(null);
   const [mng, setMng] = useState<{ busy: "open" | "uninstall" | null; msg: { ok: boolean; text: string } | null }>({ busy: null, msg: null });
   const managed = item.source === "flatpak" && !!item.flatpakId;
@@ -269,6 +299,7 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
     setError(null);
     setVersion(null);
     setElapsed(0);
+    setStats({ percent: null, downloadBytes: null, transferredBytes: null, etaSecs: null });
     const started = Date.now();
     const timer = window.setInterval(
       () => setElapsed(Math.floor((Date.now() - started) / 1000)),
@@ -279,6 +310,13 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
       if (p.flatpakId !== item.flatpakId) return;
       setPhase(p.phase);
       if (p.version) setVersion(p.version);
+      setStats((prev) => ({
+        // Total download size arrives once and should persist across later events.
+        downloadBytes: p.downloadBytes ?? prev.downloadBytes,
+        percent: p.percent ?? prev.percent,
+        transferredBytes: p.transferredBytes ?? prev.transferredBytes,
+        etaSecs: p.etaSecs ?? prev.etaSecs,
+      }));
     });
     try {
       const text = await install(item);
@@ -343,15 +381,27 @@ function IntegrationCard({ item, health, install, uninstall, open }: {
         ) : (
           <div className="mt-xs space-y-xs">
             {installing ? (
-              /* Live install state machine */
+              /* Live install state machine — real size/percent/ETA when flatpak
+                 reports them, indeterminate fallback otherwise. */
               <div className="space-y-2xs">
                 <div className="flex items-center justify-between text-2xs">
                   <span className="font-medium text-content">{PHASE_LABEL[phase!]}</span>
-                  <span className="tabular-nums text-content-subtle">{elapsed}s</span>
+                  <span className="tabular-nums text-content-subtle">
+                    {stats.percent != null ? `${stats.percent}%` : `${elapsed}s`}
+                  </span>
                 </div>
-                <IndeterminateBar />
+                {stats.percent != null ? <DeterminateBar percent={stats.percent} /> : <IndeterminateBar />}
                 {phase === "installing" && (
-                  <p className="text-2xs text-content-subtle">Fetching runtime + app from Flathub — this can take a few minutes.</p>
+                  <div className="flex items-center justify-between gap-sm text-2xs text-content-subtle">
+                    <span className="tabular-nums">
+                      {stats.downloadBytes != null
+                        ? stats.transferredBytes != null
+                          ? `${formatBytes(stats.transferredBytes)} / ${formatBytes(stats.downloadBytes)}`
+                          : `≈ ${formatBytes(stats.downloadBytes)} to download`
+                        : "Fetching from Flathub…"}
+                    </span>
+                    {stats.etaSecs != null && <span className="tabular-nums">{formatEta(stats.etaSecs)} left</span>}
+                  </div>
                 )}
               </div>
             ) : phase === "installed" ? (
