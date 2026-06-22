@@ -1,6 +1,7 @@
 /** TS mirror of src-tauri/src/sysdoctor.rs — deep System Doctor scan. */
 
-export type Severity = "ok" | "info" | "warning" | "critical";
+/** Real-world impact ladder: ok < info < low < warning < high < critical. */
+export type Severity = "ok" | "info" | "low" | "warning" | "high" | "critical";
 
 export interface Finding {
   severity: Severity;

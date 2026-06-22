@@ -70,8 +70,10 @@ const DEMO_PERMS: Permissions = {
 const STATUS: Record<string, { icon: LucideIcon; cls: string }> = {
   ok: { icon: CheckCircle2, cls: "text-success" },
   info: { icon: Info, cls: "text-info" },
+  low: { icon: Info, cls: "text-content-muted" },
   warn: { icon: AlertTriangle, cls: "text-warning" },
   warning: { icon: AlertTriangle, cls: "text-warning" },
+  high: { icon: AlertTriangle, cls: "text-danger" },
   fail: { icon: XCircle, cls: "text-danger" },
   critical: { icon: XCircle, cls: "text-danger" },
 };
@@ -79,15 +81,19 @@ const STATUS: Record<string, { icon: LucideIcon; cls: string }> = {
 const SEV_BADGE: Record<Severity, "success" | "neutral" | "warning" | "danger"> = {
   ok: "success",
   info: "neutral",
+  low: "neutral",
   warning: "warning",
+  high: "danger",
   critical: "danger",
 };
 
 const RISK_LABEL: Record<Severity, string> = {
   ok: "No",
-  info: "Low",
+  info: "Info",
+  low: "Low",
   warning: "Moderate",
-  critical: "High",
+  high: "High",
+  critical: "Critical",
 };
 
 export default function DoctorPage() {
@@ -252,7 +258,10 @@ export default function DoctorPage() {
 
 const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) {
   useRenderCount("DoctorCard");
-  const [open, setOpen] = useState(cat.status === "critical" || cat.status === "warning");
+  // Auto-expand only categories with genuinely attention-worthy findings.
+  const [open, setOpen] = useState(
+    cat.status === "critical" || cat.status === "high" || cat.status === "warning",
+  );
   const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -318,7 +327,7 @@ const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) 
                         </button>
                       )}
                       {/* Per-finding actions */}
-                      {(f.kind === "service" && f.unit) || f.severity === "warning" || f.severity === "info" ? (
+                      {(f.kind === "service" && f.unit) || f.severity !== "ok" ? (
                         <div className="mt-xs flex flex-wrap gap-xs">
                           {f.kind === "service" && f.unit && (
                             <>
@@ -327,7 +336,8 @@ const CategoryCard = memo(function CategoryCard({ cat }: { cat: ScanCategory }) 
                               <FAction icon={RotateCw} label="Restart" onClick={() => restart(f.unit!, f.userScope)} busy={busy === f.unit} />
                             </>
                           )}
-                          {(f.severity === "warning" || f.severity === "info") && (
+                          {/* Low-impact, noisy findings can be dismissed. */}
+                          {(f.severity === "info" || f.severity === "low" || f.severity === "warning") && (
                             <FAction icon={EyeOff} label="Ignore" onClick={() => setIgnored((s) => new Set(s).add(f.title))} />
                           )}
                         </div>

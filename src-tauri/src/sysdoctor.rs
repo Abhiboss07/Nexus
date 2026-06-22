@@ -106,8 +106,10 @@ fn enrich(mut x: Finding) -> Finding {
     }
     if x.impact.is_empty() {
         x.impact = match x.severity.as_str() {
-            "critical" => "Can affect system stability or data — worth addressing soon.",
+            "critical" => "Can cause data loss or a system that won't boot — address now.",
+            "high" => "A real risk to stability or performance — worth addressing soon.",
             "warning" => "Minor — worth a look, but not urgent.",
+            "low" => "Low impact — common on Linux; safe to leave, tidy up if you like.",
             "info" => "Informational — no action needed.",
             _ => "Healthy — nothing to do here.",
         }
@@ -131,7 +133,7 @@ fn enrich(mut x: Finding) -> Finding {
 pub struct ScanCategory {
     pub id: String,
     pub label: String,
-    /// Worst severity across findings: ok | info | warning | critical
+    /// Worst severity across findings: ok | info | low | warning | high | critical
     pub status: String,
     pub summary: String,
     pub findings: Vec<Finding>,
@@ -141,9 +143,11 @@ impl ScanCategory {
     fn new(id: &str, label: &str, findings: Vec<Finding>) -> Self {
         let findings: Vec<Finding> = findings.into_iter().map(enrich).collect();
         let status = worst(&findings);
+        // Only genuine attention-worthy items count as "issues" — `low` and
+        // `info` (typical Linux noise) don't inflate the count or alarm the user.
         let issues = findings
             .iter()
-            .filter(|x| x.severity == "warning" || x.severity == "critical")
+            .filter(|x| matches!(x.severity.as_str(), "warning" | "high" | "critical"))
             .count();
         let summary = if issues == 0 {
             format!("{} checks · all clear", findings.len())
@@ -160,17 +164,29 @@ impl ScanCategory {
     }
 }
 
-fn worst(findings: &[Finding]) -> String {
-    let rank = |s: &str| match s {
-        "critical" => 3,
-        "warning" => 2,
+/// Real-world impact ordering for finding severities. Higher = worse.
+///   critical — data loss / won't boot (SMART failure, mount failure, disk full)
+///   high     — real stability/perf risk (thermal throttling, dead sensor/driver)
+///   warning  — worth a look, not urgent
+///   low      — typical Linux noise that's still a real item (one failed user
+///              service, historical app coredumps, orphan packages)
+///   info     — informational only (ACPI firmware quirks, journal noise)
+fn severity_rank(s: &str) -> u8 {
+    match s {
+        "critical" => 5,
+        "high" => 4,
+        "warning" => 3,
+        "low" => 2,
         "info" => 1,
-        _ => 0,
-    };
+        _ => 0, // ok / unknown
+    }
+}
+
+fn worst(findings: &[Finding]) -> String {
     findings
         .iter()
         .map(|x| x.severity.as_str())
-        .max_by_key(|s| rank(s))
+        .max_by_key(|s| severity_rank(s))
         .unwrap_or("ok")
         .to_string()
 }
@@ -223,8 +239,10 @@ fn scan_hardware(control: &ControlService) -> ScanCategory {
             "",
         ));
     } else if p.has_nvidia {
+        // A present GPU whose driver won't respond is a real hardware/driver
+        // fault (no acceleration, no telemetry) — high, not a minor warning.
         out.push(f(
-            "warning",
+            "high",
             "GPU",
             "NVIDIA GPU present but nvidia-smi did not respond — driver issue?",
             "Check the nvidia kernel module is loaded.",
@@ -264,7 +282,9 @@ fn scan_firmware() -> Option<Finding> {
     }
     Some(
         f(
-            "warning",
+            // Informational: kernel ACPI/firmware complaints are normal on HP/OMEN
+            // units and have no measurable impact — never alarm the user with them.
+            "info",
             "Firmware (ACPI/BIOS)",
             format!(
                 "{n} ACPI/firmware complaint(s) from the kernel this boot — cosmetic on most laptops; a BIOS update may clear them"
@@ -536,16 +556,19 @@ fn scan_failed(user: bool, out: &mut Vec<Finding>) {
     }
     for unit in units {
         let (cause, dup) = unit_cause(&unit, user);
-        // Severity policy: reserve "critical" for failures that actually break
-        // the system — a filesystem/mount that won't come up (disk/boot). A
-        // crashed background service, a user-session app, or a restart loop is a
-        // "warning": worth surfacing with Logs/Restart actions, but not a
-        // system-down event. (Previously every non-restart-loop failure was
-        // flagged critical, which made the Doctor cry wolf — a single user-app
-        // crash turned the whole Services category red while the summary still
-        // read "No failed system units".)
+        // Severity policy by real-world impact:
+        //   critical — a system mount that won't come up (disk/boot data risk).
+        //   warning  — a failed *system* service, or anything stuck in a restart
+        //              loop (wastes CPU/journal), worth a look.
+        //   low      — a single failed *user-session* service (a crashed tray app,
+        //              an Arch update-notifier, etc.): real, but low impact and
+        //              extremely common — it must not make the whole category red.
         let sev = if !user && unit.ends_with(".mount") {
             "critical"
+        } else if dup {
+            "warning"
+        } else if user {
+            "low"
         } else {
             "warning"
         };
@@ -584,12 +607,14 @@ fn scan_services() -> ScanCategory {
 
 fn scan_thermals(control: &ControlService) -> ScanCategory {
     let t = control.thermal_report();
+    // Thermal problems are a performance/stability risk (throttling), not a
+    // data-loss event — so they top out at "high", never "critical".
     let sev = if t.score >= 80 {
         "ok"
     } else if t.score >= 55 {
         "warning"
     } else {
-        "critical"
+        "high"
     };
     let mut out = vec![f(
         sev,
@@ -599,8 +624,9 @@ fn scan_thermals(control: &ControlService) -> ScanCategory {
     )];
     if let Some(c) = t.cpu_c {
         out.push(f(
+            // ≥90°C means the CPU is at/near its throttle point — high.
             if c >= 90.0 {
-                "critical"
+                "high"
             } else if c >= 82.0 {
                 "warning"
             } else {
@@ -613,7 +639,13 @@ fn scan_thermals(control: &ControlService) -> ScanCategory {
     }
     if let Some(g) = t.gpu_c {
         out.push(f(
-            if g >= 87.0 { "warning" } else { "ok" },
+            if g >= 90.0 {
+                "high"
+            } else if g >= 84.0 {
+                "warning"
+            } else {
+                "ok"
+            },
             "GPU temperature",
             format!("{g:.0}°C"),
             "",
@@ -835,7 +867,10 @@ fn scan_maintenance() -> ScanCategory {
             };
             out.push(
                 f(
-                    if total > 40 { "warning" } else { "info" },
+                    // Journal error-level lines are mostly benign, repeating noise
+                    // (services retrying, drivers probing) — informational, not a
+                    // health problem. We still surface the top offenders.
+                    "info",
                     "Journal errors",
                     detail,
                     "journalctl -p 3 -b",
@@ -860,7 +895,10 @@ fn scan_maintenance() -> ScanCategory {
                     .join(", ");
                 out.push(
                     f(
-                        "warning",
+                        // Historical app coredumps are a real record but low impact
+                        // (the apps already recovered/restarted) — don't treat past
+                        // crashes as a current system fault.
+                        "low",
                         "Application crashes",
                         format!("{total} coredump(s): {list}"),
                         "coredumpctl info <pid>",
@@ -1205,13 +1243,16 @@ pub fn full_scan(control: &ControlService) -> SystemScan {
         scan_maintenance(),
     ];
 
-    // Score: start at 100, subtract for issues.
+    // Score: start at 100, subtract weighted by real-world impact. Typical Linux
+    // noise (info/low) barely moves it; only genuine risks (high/critical) bite.
     let mut score: i32 = 100;
     for c in &categories {
         for fnd in &c.findings {
             score -= match fnd.severity.as_str() {
-                "critical" => 12,
-                "warning" => 6,
+                "critical" => 15,
+                "high" => 9,
+                "warning" => 5,
+                "low" => 1,
                 _ => 0,
             };
         }
@@ -1247,6 +1288,20 @@ mod tests {
             f("critical", "c", "", ""),
         ];
         assert_eq!(worst(&fs), "critical");
+    }
+
+    #[test]
+    fn severity_ladder_orders_low_and_high() {
+        // Full ladder: ok < info < low < warning < high < critical.
+        assert!(severity_rank("ok") < severity_rank("info"));
+        assert!(severity_rank("info") < severity_rank("low"));
+        assert!(severity_rank("low") < severity_rank("warning"));
+        assert!(severity_rank("warning") < severity_rank("high"));
+        assert!(severity_rank("high") < severity_rank("critical"));
+        // A category whose worst item is a single low (e.g. one failed user
+        // service) is "low", never warning/critical.
+        let fs = vec![f("ok", "a", "", ""), f("low", "b", "", ""), f("info", "c", "", "")];
+        assert_eq!(worst(&fs), "low");
     }
 
     #[test]

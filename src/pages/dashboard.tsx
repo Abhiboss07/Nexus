@@ -536,7 +536,9 @@ const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: 
 
 const SEV_ICON: Record<string, { icon: LucideIcon; cls: string }> = {
   critical: { icon: XCircle, cls: "text-danger" },
+  high: { icon: AlertTriangle, cls: "text-danger" },
   warning: { icon: AlertTriangle, cls: "text-warning" },
+  low: { icon: Info, cls: "text-content-muted" },
   info: { icon: Info, cls: "text-info" },
   ok: { icon: CheckCircle2, cls: "text-success" },
 };
@@ -558,7 +560,7 @@ const AlertsFeed = memo(function AlertsFeed({ navigate, live }: { navigate: (p: 
       .then((s) => {
         const found = s.categories
           .flatMap((c) => c.findings)
-          .filter((f) => f.severity === "warning" || f.severity === "critical")
+          .filter((f) => f.severity === "warning" || f.severity === "high" || f.severity === "critical")
           .slice(0, 6);
         setAlerts(found);
       })
