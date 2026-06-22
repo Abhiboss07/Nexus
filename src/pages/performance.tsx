@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import { Cpu, CircuitBoard, MemoryStick, Thermometer, type LucideIcon } from "lucide-react";
@@ -14,8 +14,8 @@ import { ThermalDashboard } from "@/components/power/thermal-dashboard";
 import { FanControl } from "@/components/power/fan-control";
 import { GpuIntelligence } from "@/components/power/gpu-intelligence";
 import { stagger, fadeUp } from "@/lib/motion";
-import { useHistorySeries } from "@/hooks/use-telemetry";
 import { useTelemetryStore } from "@/store/telemetry-store";
+import { useChartHistory, useInView } from "@/hooks/use-chart-history";
 import { useRenderCount } from "@/components/dev/render-count";
 
 /**
@@ -198,20 +198,24 @@ const LiveGauges = memo(function LiveGauges() {
 
 /* --------------------------- Live telemetry chart ------------------------ */
 
-/** Owns the history-series subscription so only the chart re-renders per tick. */
+/** Owns the history subscription. Refreshes at ≤1Hz and freezes while scrolled
+ *  off-screen / mid-scroll, so the recharts SVG never repaints needlessly. */
 const LiveTelemetryChart = memo(function LiveTelemetryChart() {
   useRenderCount("LiveTelemetryChart");
-  const cpu = useHistorySeries("cpuUsage");
-  const gpu = useHistorySeries("gpuUsage");
-  const temp = useHistorySeries("cpuTemp");
+  const [ref, inView] = useInView<HTMLDivElement>();
+  const hist = useChartHistory(inView);
+  const series = useMemo(
+    () => [
+      { key: "cpu", label: "CPU %", color: "rgb(var(--color-accent))", data: hist.map((p) => p.cpuUsage) },
+      { key: "gpu", label: "GPU %", color: "rgb(var(--color-iris))", data: hist.map((p) => p.gpuUsage) },
+      { key: "temp", label: "CPU °C", color: "rgb(var(--color-danger))", data: hist.map((p) => p.cpuTemp) },
+    ],
+    [hist],
+  );
   return (
-    <LiveLineChart
-      series={[
-        { key: "cpu", label: "CPU %", color: "rgb(var(--color-accent))", data: cpu },
-        { key: "gpu", label: "GPU %", color: "rgb(var(--color-iris))", data: gpu },
-        { key: "temp", label: "CPU °C", color: "rgb(var(--color-danger))", data: temp },
-      ]}
-    />
+    <div ref={ref}>
+      <LiveLineChart series={series} />
+    </div>
   );
 });
 

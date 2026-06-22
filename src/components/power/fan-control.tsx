@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Fan,
@@ -107,6 +107,12 @@ export function FanControl() {
 
   const warnings = curveWarnings(curve);
   const curveUnsafe = warnings.length > 0;
+
+  // Stable so the memoized FanCurveEditor doesn't redraw on unrelated renders.
+  const onCurveChange = useCallback((c: CurvePoint[]) => {
+    setCurve(c);
+    setActivePreset(null);
+  }, []);
 
   async function run(fn: () => Promise<{ message: string }>, okMsg?: string) {
     setBusy(true);
@@ -219,7 +225,7 @@ export function FanControl() {
                 <Badge variant="neutral" size="sm">{curve.length}/{caps.maxCurvePoints} pts</Badge>
               </div>
               <div className={cn("rounded-xl border border-border bg-surface-sunken/40 p-sm", maxFan && "pointer-events-none opacity-40")}>
-                <FanCurveEditor points={curve} onChange={(c) => { setCurve(c); setActivePreset(null); }} currentTemp={cpuTemp} maxPoints={caps.maxCurvePoints} disabled={maxFan} />
+                <FanCurveEditor points={curve} onChange={onCurveChange} currentTemp={cpuTemp} maxPoints={caps.maxCurvePoints} disabled={maxFan} />
               </div>
               {warnings.length > 0 && (
                 <div className="mt-sm space-y-2xs">

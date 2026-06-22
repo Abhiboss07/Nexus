@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { CurvePoint } from "@/lib/fan-types";
 import { cn } from "@/lib/cn";
 
@@ -43,7 +43,12 @@ export function curvePctAt(points: CurvePoint[], temp: number): number {
   return s[s.length - 1].pct;
 }
 
-export function FanCurveEditor({
+/**
+ * Memoized so it redraws ONLY when its data changes (points / live temp /
+ * enabled state) — not on every unrelated FanControl re-render. The parent must
+ * pass a stable `onChange` (useCallback) for the memo to hold.
+ */
+export const FanCurveEditor = memo(function FanCurveEditor({
   points,
   onChange,
   currentTemp,
@@ -189,7 +194,7 @@ export function FanCurveEditor({
       ))}
     </svg>
   );
-}
+});
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));

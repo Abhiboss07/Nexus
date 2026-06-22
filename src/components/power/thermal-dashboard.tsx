@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -31,7 +31,7 @@ import { RingGauge } from "@/components/ui/ring-gauge";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { useThermal } from "@/hooks/use-thermal";
 import { useTelemetryStore } from "@/store/telemetry-store";
-import { useHistorySeries } from "@/hooks/use-telemetry";
+import { useChartHistory, useInView } from "@/hooks/use-chart-history";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 import type { FanInfo, ThermalReport } from "@/lib/fan-types";
@@ -261,16 +261,21 @@ const ThermalLiveRow = memo(function ThermalLiveRow({
 
 const ThermalHistoryChart = memo(function ThermalHistoryChart() {
   useRenderCount("ThermalHistoryChart");
-  const cpuT = useHistorySeries("cpuTemp");
-  const gpuT = useHistorySeries("gpuTemp");
-  const cpuRpm = useHistorySeries("cpuFanRpm");
-  const trend = cpuT.slice(-60).map((_, i, arr) => {
-    const idx = cpuT.length - arr.length + i;
-    return { i, cpuT: Math.round(cpuT[idx]), gpuT: Math.round(gpuT[idx]), cpuRpm: cpuRpm[idx] };
-  });
+  const [ref, inView] = useInView<HTMLDivElement>();
+  const hist = useChartHistory(inView);
+  const trend = useMemo(
+    () =>
+      hist.slice(-60).map((p, i) => ({
+        i,
+        cpuT: Math.round(p.cpuTemp),
+        gpuT: Math.round(p.gpuTemp),
+        cpuRpm: p.cpuFanRpm,
+      })),
+    [hist],
+  );
 
   return (
-    <div className="h-64 w-full">
+    <div ref={ref} className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={trend} margin={{ top: 6, right: 6, bottom: 0, left: -22 }}>
           <CartesianGrid vertical={false} stroke="rgb(var(--color-border) / 0.5)" strokeDasharray="3 6" />
