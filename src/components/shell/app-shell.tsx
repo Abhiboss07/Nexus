@@ -9,6 +9,7 @@ import { RenderCountOverlay } from "@/components/dev/render-count";
 import { PerfOverlay } from "@/components/dev/perf-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGlobalHotkeys } from "@/hooks/use-hotkeys";
+import { useAmbientPause } from "@/hooks/use-ambient-pause";
 import { pageTransition } from "@/lib/motion";
 
 /**
@@ -17,6 +18,7 @@ import { pageTransition } from "@/lib/motion";
  */
 export function AppShell() {
   useGlobalHotkeys();
+  useAmbientPause();
   const location = useLocation();
 
   return (

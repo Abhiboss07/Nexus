@@ -186,6 +186,25 @@
     animation-iteration-count: 1 !important;
   }
 
+  /* Pause continuous ambient/background motion while the window is unfocused or
+     hidden (set by useAmbientPause) — no GPU/CPU/battery spent when nobody's
+     watching. UI transitions are unaffected; only looping background motion is. */
+  html[data-ambient-paused="true"] .animate-aurora-shift,
+  html[data-ambient-paused="true"] .animate-grid-pan,
+  html[data-ambient-paused="true"] .animate-pulse-glow {
+    animation-play-state: paused !important;
+  }
+
+  /* Defer paint/layout of long-page sections until they scroll near the
+     viewport. `auto` lets the engine remember the real size after first render,
+     so the reserved intrinsic size is only an initial estimate. Big win on the
+     long Performance page where many glass/blur cards would otherwise all paint
+     and re-composite on every scroll frame. */
+  .cv-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 720px;
+  }
+
   /* Skeleton shimmer used by loading states */
   .skeleton {
     position: relative;

@@ -76,23 +76,27 @@ export default function PerformancePage() {
           </motion.div>
         </div>
 
-        {/* GPU intelligence */}
-        <div className="mt-lg mb-md flex items-center gap-sm">
-          <CircuitBoard className="h-4 w-4 text-accent" />
-          <h2 className="font-display text-lg font-semibold text-content">GPU Intelligence</h2>
+        {/* GPU intelligence — content-visibility defers its paint until scrolled near */}
+        <div className="cv-auto">
+          <div className="mt-lg mb-md flex items-center gap-sm">
+            <CircuitBoard className="h-4 w-4 text-accent" />
+            <h2 className="font-display text-lg font-semibold text-content">GPU Intelligence</h2>
+          </div>
+          <GpuIntelligence />
         </div>
-        <GpuIntelligence />
 
         {/* Thermal intelligence dashboard */}
-        <div className="mt-lg mb-md flex items-center gap-sm">
-          <Thermometer className="h-4 w-4 text-accent" />
-          <h2 className="font-display text-lg font-semibold text-content">Thermal Intelligence</h2>
-          <Badge variant="neutral" size="sm">read-only · validated</Badge>
+        <div className="cv-auto">
+          <div className="mt-lg mb-md flex items-center gap-sm">
+            <Thermometer className="h-4 w-4 text-accent" />
+            <h2 className="font-display text-lg font-semibold text-content">Thermal Intelligence</h2>
+            <Badge variant="neutral" size="sm">read-only · validated</Badge>
+          </div>
+          <ThermalDashboard />
         </div>
-        <ThermalDashboard />
 
         {/* Fan control — real writes (Victus-S), capability-gated */}
-        <div className="mt-md">
+        <div className="cv-auto mt-md">
           <FanControl />
         </div>
       </motion.div>
