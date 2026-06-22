@@ -36,7 +36,9 @@ import { RingGauge } from "@/components/ui/ring-gauge";
 import { Meter } from "@/components/ui/progress";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { RouteFallback } from "@/components/shell/route-fallback";
+import { useShallow } from "zustand/react/shallow";
 import { useBattery, useCapability, useTelemetrySource } from "@/hooks/use-telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { useReduceMotion } from "@/store/prefs-store";
 import { useBatteryEventsStore } from "@/store/battery-events-store";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
@@ -61,16 +63,22 @@ const SEV: Record<string, { icon: typeof Info; cls: string }> = {
 
 export default function BatteryPage() {
   const { report, history, exportReport } = useBatteryIntel();
-  const liveBattery = useBattery();
+  // Rounded shallow selector so the page shell re-renders only when the shown
+  // charge % or status changes — not on every telemetry tick. (The debug panel
+  // owns its own per-tick read.)
+  const liveBattery = useTelemetryStore(
+    useShallow((s) => {
+      const b = s.snapshot?.battery;
+      return { percent: b ? Math.round(b.chargePercent) : null, status: b?.status ?? null };
+    }),
+  );
   const batteryCap = useCapability("battery");
 
   if (!report) return <RouteFallback />;
 
-  // Prefer the live charge % from the telemetry stream; fall back to report.
-  const charge = liveBattery?.chargePercent ?? report.chargePercent;
-  // Prefer live status; fall back to the report's boolean. Never substring-match
-  // "charg" (it matches "disCHARGing") — use the shared isCharging() helper.
-  const charging = liveBattery ? isCharging(liveBattery.status) : report.charging;
+  const charge = liveBattery.percent ?? report.chargePercent;
+  // Never substring-match "charg" (it matches "disCHARGing") — use isCharging().
+  const charging = liveBattery.status ? isCharging(liveBattery.status) : report.charging;
   const scoreTone = report.score > 85 ? "success" : report.score > 65 ? "warning" : "danger";
 
   const degradationData = history.map((s) => ({
