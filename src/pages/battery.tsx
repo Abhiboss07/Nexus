@@ -37,6 +37,7 @@ import { Meter } from "@/components/ui/progress";
 import { SectionTitle, StatRow } from "@/components/ui/section";
 import { RouteFallback } from "@/components/shell/route-fallback";
 import { useBattery, useCapability } from "@/hooks/use-telemetry";
+import { useReduceMotion } from "@/store/prefs-store";
 import { useBatteryIntel } from "@/hooks/use-battery-intel";
 import {
   isTauri,
@@ -345,17 +346,65 @@ function ChargeLimitCard({ cap }: { cap?: CapabilityStatus }) {
   );
 }
 
+/** Level → color tone, per the design thresholds (80 green / 40 cyan / 20 amber / red). */
+function batteryTone(level: number): "success" | "iris" | "warning" | "danger" {
+  if (level >= 80) return "success";
+  if (level >= 40) return "iris";
+  if (level >= 20) return "warning";
+  return "danger";
+}
+
+/**
+ * Premium vertical battery: liquid fill synced to the live level, color by
+ * charge band, and (while charging, motion permitting) a pulsing glow + upward
+ * energy shimmer. Continuous effects are gated behind reduce-motion so Battery
+ * Saver / "animations off" keeps it static and cheap.
+ */
 function BatteryGlyph({ level, charging }: { level: number; charging: boolean }) {
-  const tone = level > 50 ? "success" : level > 20 ? "warning" : "danger";
-  const color = `rgb(var(--color-${tone}))`;
+  const reduce = useReduceMotion();
+  const tone = batteryTone(level);
+  const fillPct = Math.max(3, Math.min(100, level));
+  const animate = charging && !reduce;
+  const glow = (a: number) => `0 0 26px rgb(var(--color-${tone}) / ${a})`;
+
   return (
-    <div className="relative flex items-center">
-      <div className="relative h-28 w-52 rounded-2xl border-2 border-border-strong bg-surface-sunken p-1.5">
-        <motion.div className="h-full rounded-xl" style={{ background: `linear-gradient(180deg, ${color}, ${color}cc)` }}
-          initial={{ width: 0 }} animate={{ width: `${level}%` }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }} />
-        {charging && <BatteryCharging className="absolute inset-0 m-auto h-10 w-10 text-white drop-shadow" />}
-      </div>
-      <div className="h-10 w-1.5 rounded-r-md bg-border-strong" />
+    <div className="relative grid shrink-0 place-items-center">
+      {/* terminal nub */}
+      <div className="h-2 w-7 rounded-t-md bg-border-strong" />
+      <motion.div
+        className="relative h-36 w-20 rounded-2xl border-2 border-border-strong bg-surface-sunken"
+        animate={animate ? { boxShadow: [glow(0), glow(0.55), glow(0)] } : { boxShadow: glow(0) }}
+        transition={animate ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.4 }}
+      >
+        {/* fill track */}
+        <div className="absolute inset-1.5 overflow-hidden rounded-xl">
+          <motion.div
+            className="absolute inset-x-0 bottom-0"
+            style={{
+              background: `linear-gradient(180deg, rgb(var(--color-${tone})), rgb(var(--color-${tone}) / 0.72))`,
+            }}
+            initial={false}
+            animate={{ height: `${fillPct}%` }}
+            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {/* liquid surface highlight */}
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-white/30" />
+            {/* charging energy shimmer */}
+            {animate && (
+              <motion.div
+                className="absolute inset-x-0 h-10 bg-gradient-to-t from-transparent via-white/25 to-transparent"
+                initial={{ y: "120%" }}
+                animate={{ y: "-130%" }}
+                transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}
+              />
+            )}
+          </motion.div>
+        </div>
+        {/* charging bolt */}
+        {charging && (
+          <BatteryCharging className="absolute inset-0 z-10 m-auto h-9 w-9 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]" />
+        )}
+      </motion.div>
     </div>
   );
 }

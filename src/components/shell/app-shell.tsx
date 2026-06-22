@@ -6,6 +6,7 @@ import { TopBar } from "./topbar";
 import { BackgroundCanvas } from "@/components/background/background-canvas";
 import { CommandPalette } from "@/components/command/command-palette";
 import { NotificationDrawer } from "@/components/notifications/notification-drawer";
+import { Toaster } from "@/components/ui/toaster";
 import { SetupWizard } from "@/components/shell/setup-wizard";
 import { RenderCountOverlay } from "@/components/dev/render-count";
 import { PerfOverlay } from "@/components/dev/perf-overlay";
@@ -31,6 +32,7 @@ export function AppShell() {
       <BackgroundCanvas />
       <CommandPalette />
       <NotificationDrawer />
+      <Toaster />
       <SetupWizard />
       <RenderCountOverlay />
       <PerfOverlay />

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { onNotification } from "@/lib/ipc";
 import { useNotificationStore } from "@/store/notification-store";
 import { useSystemAlerts } from "@/hooks/use-system-alerts";
+import { useChargingEvents } from "@/hooks/use-charging-events";
 
 /**
  * Mounted once (AppProviders). Loads persisted notifications, subscribes to the
@@ -30,5 +31,6 @@ export function NotificationManager() {
   }, [ingest]);
 
   useSystemAlerts();
+  useChargingEvents();
   return null;
 }
