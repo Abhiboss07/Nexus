@@ -123,21 +123,24 @@ export function ProfileMenu() {
     { icon: Gauge, label: "Power", value: powerMode },
   ];
 
+  // Navigate to Settings and scroll a section into view. Crucially this runs the
+  // scroll even when already on /settings (where `navigate` alone is a no-op) —
+  // that no-op was why "Preferences" appeared to do nothing.
+  function goToSettings(anchor: string) {
+    navigate("/settings");
+    setOpen(false);
+    window.setTimeout(
+      () => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      120,
+    );
+  }
+
   type Action = { icon: LucideIcon; label: string; run: () => void; danger?: boolean };
   const actions: Action[] = [
-    { icon: UserCog, label: "Profile", run: () => navigate("/settings") },
-    { icon: Cog, label: "Preferences", run: () => navigate("/settings") },
-    {
-      icon: Palette,
-      label: "Themes",
-      run: () => {
-        navigate("/settings");
-        window.setTimeout(
-          () => document.getElementById("appearance")?.scrollIntoView({ behavior: "smooth" }),
-          120,
-        );
-      },
-    },
+    // Each entry now resolves to a distinct, real Settings section.
+    { icon: UserCog, label: "Profiles", run: () => goToSettings("profiles") },
+    { icon: Cog, label: "Preferences", run: () => goToSettings("system") },
+    { icon: Palette, label: "Themes", run: () => goToSettings("appearance") },
     { icon: Download, label: "Backup Configuration", run: backupConfig },
     { icon: Upload, label: "Restore Configuration", run: () => restoreRef.current?.click() },
     { icon: FileText, label: "Export Diagnostics", run: exportDiagnosticsFile },
