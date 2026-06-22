@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::diagnostics::{self, HealthCheck, Permissions};
@@ -652,6 +652,59 @@ pub async fn add_flathub() -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/* ----- Persistent telemetry store (history / sessions / aggregates) ----- */
+
+/// Recent telemetry sessions (newest first) with rolled-up summary stats.
+/// Gaming Intelligence consumes these instead of the volatile in-memory ring.
+#[tauri::command]
+pub async fn telemetry_sessions(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    limit: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::SessionRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.sessions(limit.unwrap_or(50)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Summary stats for one session.
+#[tauri::command]
+pub async fn telemetry_session_summary(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    id: i64,
+) -> Result<Option<crate::telemetry::store::SessionRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.session_summary(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Persisted time-series history for `[since, until]` (ms epoch). Resolution is
+/// auto-selected: raw samples for recent windows, hourly aggregates for longer.
+#[tauri::command]
+pub async fn telemetry_history(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+    since: i64,
+    until: i64,
+    max_points: Option<i64>,
+) -> Result<Vec<crate::telemetry::store::HistoryRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.history(since, until, max_points.unwrap_or(600)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Store-wide totals (sessions, samples, tracked time, peak temps, db size).
+#[tauri::command]
+pub async fn telemetry_stats(
+    store: State<'_, Arc<crate::telemetry::TelemetryStore>>,
+) -> Result<crate::telemetry::store::StoreStats, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.stats())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /* ----- Battery charge-limit evidence (Task 4 — hardware truth) ----- */
 
 #[tauri::command]
@@ -916,6 +969,8 @@ pub fn system_uptime() -> u64 {
 /// explicit "Quit" action). Flushes logs first, mirroring the tray quit.
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    app.state::<Arc<crate::telemetry::TelemetryStore>>()
+        .end_current_session();
     logging::shutdown();
     app.exit(0);
 }
