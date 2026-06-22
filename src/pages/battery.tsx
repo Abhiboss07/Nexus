@@ -44,7 +44,7 @@ import {
   getChargeLimitEvidence,
   setChargeLimit as applyChargeLimit,
 } from "@/lib/ipc";
-import type { ChargeLimitEvidence } from "@/lib/battery-types";
+import { isCharging, type ChargeLimitEvidence } from "@/lib/battery-types";
 import type { CapabilityStatus } from "@/lib/capability-types";
 import { stagger, fadeUp } from "@/lib/motion";
 import { cn } from "@/lib/cn";
@@ -66,7 +66,9 @@ export default function BatteryPage() {
 
   // Prefer the live charge % from the telemetry stream; fall back to report.
   const charge = liveBattery?.chargePercent ?? report.chargePercent;
-  const charging = liveBattery?.status?.includes("charg") ?? report.charging;
+  // Prefer live status; fall back to the report's boolean. Never substring-match
+  // "charg" (it matches "disCHARGing") — use the shared isCharging() helper.
+  const charging = liveBattery ? isCharging(liveBattery.status) : report.charging;
   const scoreTone = report.score > 85 ? "success" : report.score > 65 ? "warning" : "danger";
 
   const degradationData = history.map((s) => ({

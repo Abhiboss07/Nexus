@@ -64,7 +64,7 @@ import {
 } from "@/lib/ipc";
 import type { GpuInfo } from "@/lib/gpu-types";
 import type { LauncherStatus } from "@/lib/games-types";
-import type { BatteryReport } from "@/lib/battery-types";
+import { isCharging, type BatteryReport } from "@/lib/battery-types";
 import type { Finding } from "@/lib/sysdoctor-types";
 import { useRenderCount } from "@/components/dev/render-count";
 import { cn } from "@/lib/cn";
@@ -483,7 +483,7 @@ function chargeSessions(statuses: string[]): number {
   let sessions = 0;
   let prevCharging = false;
   for (const s of statuses) {
-    const charging = s.toLowerCase().includes("charg") && !s.toLowerCase().includes("dis");
+    const charging = isCharging(s);
     if (charging && !prevCharging) sessions++;
     prevCharging = charging;
   }
@@ -500,7 +500,7 @@ const BatteryIntel = memo(function BatteryIntel({ report, sessions }: { report: 
   const cycles = report?.cycleCount;
   const years = report?.lifespan.yearsRemaining;
   const dischargeW = report?.dischargeRateW ?? battery?.powerDrawW;
-  const charging = battery?.status?.includes("harg") ?? false;
+  const charging = isCharging(battery?.status);
   const percent = battery?.chargePercent;
 
   if (wear == null && percent == null) {

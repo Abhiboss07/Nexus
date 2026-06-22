@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { pushToast } from "@/store/toast-store";
 import { notify } from "@/store/notification-store";
+import { isCharging } from "@/lib/battery-types";
 
 /**
  * Detects AC connect / disconnect (charging-state edges) from live telemetry and
@@ -16,8 +17,7 @@ export function useChargingEvents() {
     const unsub = useTelemetryStore.subscribe((s) => {
       const bat = s.snapshot?.battery;
       if (!bat) return;
-      const st = (bat.status ?? "").toLowerCase();
-      const charging = st.includes("charg") && !st.includes("dis");
+      const charging = isCharging(bat.status);
 
       if (prev === null) {
         prev = charging;
@@ -25,6 +25,11 @@ export function useChargingEvents() {
       }
       if (charging === prev) return;
       prev = charging;
+
+      // Diagnostics for AC/charging transitions (helps confirm real hardware state).
+      console.info(
+        `[charging] ${charging ? "AC connected" : "AC disconnected"} — status="${bat.status}" charge=${bat.chargePercent.toFixed(0)}%`,
+      );
 
       if (charging) {
         pushToast({

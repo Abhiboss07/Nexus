@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useTelemetryStore } from "@/store/telemetry-store";
 import { notify } from "@/store/notification-store";
+import { isCharging } from "@/lib/battery-types";
 
 /**
  * Watches live telemetry and raises edge-triggered notifications (battery low /
@@ -21,8 +22,7 @@ export function useSystemAlerts() {
       const bat = snap.battery;
       if (bat) {
         const pct = bat.chargePercent;
-        const st = (bat.status ?? "").toLowerCase();
-        const charging = st.includes("charg") && !st.includes("dis");
+        const charging = isCharging(bat.status);
 
         if (charging) {
           low = false;
