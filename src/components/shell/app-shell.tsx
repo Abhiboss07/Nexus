@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sidebar } from "./sidebar";
@@ -13,7 +12,6 @@ import { PerfOverlay } from "@/components/dev/perf-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGlobalHotkeys } from "@/hooks/use-hotkeys";
 import { useAmbientPause } from "@/hooks/use-ambient-pause";
-import { useScrollPerf } from "@/hooks/use-scroll-perf";
 import { pageTransition } from "@/lib/motion";
 
 /**
@@ -24,8 +22,6 @@ export function AppShell() {
   useGlobalHotkeys();
   useAmbientPause();
   const location = useLocation();
-  const scrollRef = useRef<HTMLElement>(null);
-  useScrollPerf(scrollRef);
 
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
@@ -42,7 +38,7 @@ export function AppShell() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
-          <main ref={scrollRef} className="relative flex-1 overflow-y-auto">
+          <main className="relative flex-1 overflow-y-auto">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={location.pathname}

@@ -28,16 +28,15 @@ export function useInView<T extends Element>(
  * Live telemetry history batched to ≤1Hz for chart rendering. Telemetry is still
  * stored at full rate in the zustand store; this just samples it once a second
  * so a fast poll cadence can't thrash the (expensive) recharts SVGs. Updates are
- * additionally skipped while the chart is off-screen (`active=false`), the window
- * is hidden, or the user is actively scrolling — so charts never repaint mid-
- * gesture.
+ * skipped while the chart is off-screen (`active=false`) or the window is hidden.
+ * (No scroll coupling — that caused visible flicker; scrolling is left untouched.)
  */
 export function useChartHistory(active = true): HistoryPoint[] {
   const [hist, setHist] = useState<HistoryPoint[]>(() => useTelemetryStore.getState().history);
   useEffect(() => {
     if (!active) return;
     const tick = () => {
-      if (document.hidden || document.documentElement.dataset.scrolling === "true") return;
+      if (document.hidden) return;
       // setState with the same array reference is a no-op (React bails), so a
       // poll cadence slower than 1Hz costs nothing.
       setHist(useTelemetryStore.getState().history);
