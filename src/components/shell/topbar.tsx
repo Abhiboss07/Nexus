@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/badge";
 import { ThemeSwitcher } from "./theme-switcher";
 import { TelemetryBadge } from "./telemetry-badge";
+import { InstallIndicator } from "./install-indicator";
 import { WindowControls } from "./window-controls";
 import { ProfileMenu } from "./profile-menu";
 import { Kbd } from "@/components/ui/kbd";
@@ -44,6 +45,7 @@ export function TopBar() {
 
       {/* Right cluster */}
       <div className="flex items-center gap-2xs">
+        <InstallIndicator />
         <TelemetryBadge />
         <QuickActions />
         <ThemeSwitcher />
