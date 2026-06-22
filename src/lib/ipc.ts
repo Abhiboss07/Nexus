@@ -52,6 +52,11 @@ import type {
 } from "./integrations-types";
 import type { CommandResult, IntelligenceReport } from "./intelligence-types";
 import type {
+  TelemetrySession,
+  TelemetryHistoryRow,
+  TelemetryStoreStats,
+} from "./telemetry-history-types";
+import type {
   CompatibilityReport,
   HealthCheck,
   Permissions,
@@ -264,6 +269,20 @@ export const openIntegration = (flatpakId: string) =>
 export const flatpakHealth = () => invoke<FlatpakHealth>("flatpak_health");
 /** One-click "Add Flathub" (user-scoped, idempotent). */
 export const addFlathub = () => invoke<string>("add_flathub");
+
+/* ----- Persistent telemetry store (history / sessions / aggregates) ----- */
+
+/** Recent telemetry sessions (newest first) with rolled-up summary stats. */
+export const telemetrySessions = (limit?: number) =>
+  invoke<TelemetrySession[]>("telemetry_sessions", { limit });
+/** Summary stats for one session (null if unknown). */
+export const telemetrySessionSummary = (id: number) =>
+  invoke<TelemetrySession | null>("telemetry_session_summary", { id });
+/** Persisted history for `[since, until]` (ms epoch); resolution auto-selected. */
+export const telemetryHistory = (since: number, until: number, maxPoints?: number) =>
+  invoke<TelemetryHistoryRow[]>("telemetry_history", { since, until, maxPoints });
+/** Store-wide totals (sessions, samples, tracked time, peak temps, db size). */
+export const telemetryStats = () => invoke<TelemetryStoreStats>("telemetry_stats");
 
 /* ----- System Doctor: deep scan + storage analyzer ----- */
 

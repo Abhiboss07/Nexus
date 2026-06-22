@@ -22,6 +22,7 @@ import { Meter } from "@/components/ui/progress";
 import { Sparkline } from "@/components/ui/sparkline";
 import { SectionTitle } from "@/components/ui/section";
 import { CommandBar } from "@/components/intelligence/command-bar";
+import { TelemetrySessions } from "@/components/intelligence/telemetry-sessions";
 import { useIntelligence } from "@/hooks/use-intelligence";
 import type { Evidence } from "@/lib/intelligence-types";
 import { stagger, fadeUp } from "@/lib/motion";
@@ -61,6 +62,11 @@ export default function IntelligencePage() {
       </div>
 
       <motion.div variants={stagger(0.05)} initial="hidden" animate="show" className="space-y-lg">
+        {/* Persistent telemetry — sessions & aggregates (foundation for Gaming Intelligence) */}
+        <motion.div variants={fadeUp}>
+          <TelemetrySessions />
+        </motion.div>
+
         {/* Health + bottleneck */}
         <div className="grid grid-cols-1 gap-md lg:grid-cols-3">
           <motion.div variants={fadeUp}>
