@@ -57,6 +57,11 @@ import type {
   TelemetryStoreStats,
 } from "./telemetry-history-types";
 import type {
+  SessionAnalytics,
+  FpsAnalysis,
+  TrendReport,
+} from "./gaming-types";
+import type {
   CompatibilityReport,
   HealthCheck,
   Permissions,
@@ -283,6 +288,21 @@ export const telemetryHistory = (since: number, until: number, maxPoints?: numbe
   invoke<TelemetryHistoryRow[]>("telemetry_history", { since, until, maxPoints });
 /** Store-wide totals (sessions, samples, tracked time, peak temps, db size). */
 export const telemetryStats = () => invoke<TelemetryStoreStats>("telemetry_stats");
+
+/* ----- Gaming Intelligence v1 (analysis over the persistent store) ----- */
+
+/** Full per-session analytics (avgs/peaks/mins, power, FPS stats, throttle %). */
+export const gamingSessionAnalytics = (id: number) =>
+  invoke<SessionAnalytics | null>("gaming_session_analytics", { id });
+/** Per-sample timeline for one session (FPS / thermal charts). */
+export const gamingSessionSeries = (id: number, maxPoints?: number) =>
+  invoke<TelemetryHistoryRow[]>("gaming_session_series", { id, maxPoints });
+/** "Why FPS dropped" — limiter/bottleneck analysis for a session. */
+export const gamingFpsAnalysis = (id: number) =>
+  invoke<FpsAnalysis | null>("gaming_fps_analysis", { id });
+/** Cross-session performance trends (regressions / improvements). */
+export const gamingTrends = (limit?: number) =>
+  invoke<TrendReport>("gaming_trends", { limit });
 
 /* ----- System Doctor: deep scan + storage analyzer ----- */
 
