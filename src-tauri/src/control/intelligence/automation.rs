@@ -111,11 +111,7 @@ mod tests {
     #[test]
     fn suggests_gaming_when_gpu_hot_and_no_rule() {
         let hist: Vec<_> = (0..20)
-            .map(|_| {
-                let mut p = HistoryPoint::default();
-                p.gpu_temp = 80.0;
-                p
-            })
+            .map(|_| HistoryPoint { gpu_temp: 80.0, ..Default::default() })
             .collect();
         // empty config (default has rules though) → use a truly empty one
         let empty = AutomationConfig {
@@ -129,11 +125,7 @@ mod tests {
     #[test]
     fn does_not_resuggest_existing_rules() {
         let hist: Vec<_> = (0..20)
-            .map(|_| {
-                let mut p = HistoryPoint::default();
-                p.gpu_temp = 80.0;
-                p
-            })
+            .map(|_| HistoryPoint { gpu_temp: 80.0, ..Default::default() })
             .collect();
         let cfg = AutomationConfig::default(); // already has steam→gaming
         let out = suggest(&hist, &Snapshot::default(), &cfg, &caps());

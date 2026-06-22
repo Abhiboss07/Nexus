@@ -135,9 +135,7 @@ mod tests {
     use crate::telemetry::types::HistoryPoint;
 
     fn hp(cpu_temp: f32) -> HistoryPoint {
-        let mut p = HistoryPoint::default();
-        p.cpu_temp = cpu_temp;
-        p
+        HistoryPoint { cpu_temp, ..Default::default() }
     }
 
     #[test]

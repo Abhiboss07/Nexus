@@ -311,11 +311,7 @@ mod tests {
 
     fn history_with_cpu_temp(t: f32, n: usize) -> Vec<HistoryPoint> {
         (0..n)
-            .map(|_| {
-                let mut p = HistoryPoint::default();
-                p.cpu_temp = t;
-                p
-            })
+            .map(|_| HistoryPoint { cpu_temp: t, ..Default::default() })
             .collect()
     }
 

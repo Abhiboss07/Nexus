@@ -154,15 +154,13 @@ mod tests {
 
     #[test]
     fn disabled_config_never_matches() {
-        let mut cfg = AutomationConfig::default();
-        cfg.enabled = false;
+        let cfg = AutomationConfig { enabled: false, ..Default::default() };
         assert_eq!(evaluate(&cfg, &ctx(&["steam"], Some(50), true)), None);
     }
 
     #[test]
     fn process_rule_wins_by_priority() {
-        let mut cfg = AutomationConfig::default();
-        cfg.enabled = true;
+        let cfg = AutomationConfig { enabled: true, ..Default::default() };
         // steam running + low battery → gaming wins (higher priority).
         assert_eq!(
             evaluate(&cfg, &ctx(&["steam", "bash"], Some(10), false)).as_deref(),
@@ -172,8 +170,7 @@ mod tests {
 
     #[test]
     fn low_battery_matches_when_no_process() {
-        let mut cfg = AutomationConfig::default();
-        cfg.enabled = true;
+        let cfg = AutomationConfig { enabled: true, ..Default::default() };
         assert_eq!(
             evaluate(&cfg, &ctx(&["bash"], Some(15), false)).as_deref(),
             Some("battery-saver")
@@ -182,8 +179,7 @@ mod tests {
 
     #[test]
     fn disabled_rule_is_skipped() {
-        let mut cfg = AutomationConfig::default();
-        cfg.enabled = true;
+        let mut cfg = AutomationConfig { enabled: true, ..Default::default() };
         cfg.rules[0].enabled = false; // disable steam→gaming
         assert_eq!(evaluate(&cfg, &ctx(&["steam"], Some(80), true)), None);
     }
