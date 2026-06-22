@@ -757,6 +757,13 @@ pub async fn gaming_trends(
         .map_err(|e| e.to_string())?
 }
 
+/// Raw battery sysfs values for the diagnostics panel (ground-truth debugging of
+/// charging state). Reads `/sys/class/power_supply/BAT*` directly.
+#[tauri::command]
+pub fn get_battery_debug() -> crate::telemetry::collectors::BatteryDebug {
+    crate::telemetry::collectors::battery_debug()
+}
+
 /* ----- Notification Center (persistent event hub) ----- */
 
 /// Add a notification, persist it, and emit `notification://new` so the bell +

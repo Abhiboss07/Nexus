@@ -245,6 +245,7 @@ pub fn run() {
             commands::gaming_session_series,
             commands::gaming_fps_analysis,
             commands::gaming_trends,
+            commands::get_battery_debug,
             commands::notif_add,
             commands::notif_list,
             commands::notif_unread,

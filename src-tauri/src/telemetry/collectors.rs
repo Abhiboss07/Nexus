@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::process::Command;
 
+use serde::Serialize;
+
 use super::hardware::HardwareProfile;
 use super::hwmon::HwmonScan;
 use super::sysfs;
@@ -469,6 +471,48 @@ pub fn battery() -> Option<BatteryTelemetry> {
         voltage_v,
         time_remaining_min,
     })
+}
+
+/// Raw, unprocessed battery sysfs values for the diagnostics panel — the ground
+/// truth, so a "stuck charging" report can be traced to firmware vs. Nexus.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BatteryDebug {
+    pub path: Option<String>,
+    pub present: bool,
+    /// Verbatim `status` (NOT lowercased): Charging | Discharging | Full | Not charging | Unknown.
+    pub status: Option<String>,
+    pub capacity: Option<i64>,
+    /// µW (sign per kernel; often unsigned).
+    pub power_now: Option<i64>,
+    /// µA — negative while discharging on many laptops.
+    pub current_now: Option<i64>,
+    pub voltage_now: Option<i64>,
+    pub charge_now: Option<i64>,
+    pub energy_now: Option<i64>,
+}
+
+pub fn battery_debug() -> BatteryDebug {
+    let Some(base) = ["/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"]
+        .into_iter()
+        .find(|p| sysfs::exists(p))
+    else {
+        return BatteryDebug::default();
+    };
+    let raw_i = |f: &str| {
+        sysfs::read_string(&format!("{base}/{f}")).and_then(|s| s.trim().parse::<i64>().ok())
+    };
+    BatteryDebug {
+        path: Some(base.to_string()),
+        present: true,
+        status: sysfs::read_string(&format!("{base}/status")).map(|s| s.trim().to_string()),
+        capacity: raw_i("capacity"),
+        power_now: raw_i("power_now"),
+        current_now: raw_i("current_now"),
+        voltage_now: raw_i("voltage_now"),
+        charge_now: raw_i("charge_now"),
+        energy_now: raw_i("energy_now"),
+    }
 }
 
 fn is_virtual_iface(name: &str) -> bool {

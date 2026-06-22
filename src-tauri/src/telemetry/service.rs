@@ -26,6 +26,8 @@ pub struct TelemetryService {
     cached_storage: Vec<StorageTelemetry>,
     latest: Option<Snapshot>,
     history: VecDeque<HistoryPoint>,
+    /// Previous battery status, for transition logging (charging diagnostics).
+    prev_battery_status: Option<String>,
 }
 
 impl TelemetryService {
@@ -42,6 +44,7 @@ impl TelemetryService {
             cached_storage: Vec::new(),
             latest: None,
             history: VecDeque::with_capacity(HISTORY_CAP),
+            prev_battery_status: None,
         }
     }
 
@@ -87,6 +90,20 @@ impl TelemetryService {
         } else {
             None
         };
+
+        // Log battery status transitions (charging diagnostics — confirms the
+        // backend reflects the real sysfs state, e.g. charging→discharging on unplug).
+        let cur_status = battery.as_ref().map(|b| b.status.clone());
+        if cur_status != self.prev_battery_status {
+            if let Some(s) = &cur_status {
+                let pct = battery.as_ref().map(|b| b.charge_percent).unwrap_or(0.0);
+                crate::logging::line(
+                    "INFO",
+                    &format!("Battery status: {s} ({pct:.0}%)"),
+                );
+            }
+            self.prev_battery_status = cur_status;
+        }
 
         let storage_c = storage.iter().find_map(|s| s.temperature_c);
         let gpu_c = gpu.as_ref().and_then(|g| g.temperature_c);

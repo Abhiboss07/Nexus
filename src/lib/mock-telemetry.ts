@@ -40,6 +40,10 @@ export function createDemoStream() {
   let down = 0;
   let up = 0;
   let charge = 92;
+  // Demo battery oscillates so it's clearly *simulated* and exercises both
+  // charging + discharging states (it can't see a real charger — there's no
+  // backend in browser/demo mode).
+  let demoCharging = false;
 
   return function next(): Snapshot {
     // Occasionally simulate a load spike.
@@ -51,7 +55,9 @@ export function createDemoStream() {
     gpuTemp = drift(gpuTemp, 42 + gpu * 0.4, 4, 35, 90);
     down = Math.max(0, drift(down, Math.random() < 0.3 ? 80 : 8, 30, 0, 1000)) * MB / 8;
     up = Math.max(0, drift(up, 4, 8, 0, 200)) * MB / 8;
-    charge = Math.max(20, charge - 0.002);
+    if (charge >= 98) demoCharging = false;
+    else if (charge <= 30) demoCharging = true;
+    charge = Math.max(20, Math.min(100, charge + (demoCharging ? 0.05 : -0.03)));
 
     const cores = Array.from({ length: 16 }, (_, i) =>
       Math.max(2, Math.min(100, cpu + Math.sin(Date.now() / 800 + i) * 18)),
@@ -107,7 +113,7 @@ export function createDemoStream() {
       ],
       battery: {
         present: true,
-        status: "charging",
+        status: demoCharging ? "charging" : "discharging",
         chargePercent: charge,
         healthPercent: 85.9,
         cycleCount: 213,
