@@ -312,10 +312,11 @@ pub fn run() {
                         let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
                         if last_store.elapsed().as_millis() >= STORE_EVERY_MS {
                             if let Some(sid) = stream_store.current_session() {
-                                // `None` FPS for now — a frame-rate source (e.g.
-                                // MangoHud) can supply real values later without a
-                                // schema change.
-                                let _ = stream_store.record(sid, &snapshot, None);
+                                // Live FPS from MangoHud's logs when a game is
+                                // actively running; `None` otherwise (FPS columns
+                                // simply stay 0 for non-gaming samples).
+                                let fps = telemetry::fps::current_fps();
+                                let _ = stream_store.record(sid, &snapshot, fps);
                             }
                             last_store = std::time::Instant::now();
                         }
