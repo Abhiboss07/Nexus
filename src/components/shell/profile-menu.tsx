@@ -18,7 +18,8 @@ import {
   Power,
   type LucideIcon,
 } from "lucide-react";
-import { useHardwareProfile, useMemory } from "@/hooks/use-telemetry";
+import { useHardwareProfile } from "@/hooks/use-telemetry";
+import { useTelemetryStore } from "@/store/telemetry-store";
 import { usePowerInfo, useActiveProfile, useNexusProfiles } from "@/hooks/use-control";
 import { isTauri, systemUptime, quitApp, exportDiagnostics } from "@/lib/ipc";
 import { formatBytes } from "@/lib/format";
@@ -72,7 +73,9 @@ async function exportDiagnosticsFile() {
 export function ProfileMenu() {
   const navigate = useNavigate();
   const profile = useHardwareProfile();
-  const mem = useMemory();
+  // This menu lives in the always-mounted top bar and only needs the *static*
+  // total RAM — subscribe to that alone, not the per-tick memory object.
+  const memTotalBytes = useTelemetryStore((s) => s.snapshot?.memory?.totalBytes ?? null);
   const power = usePowerInfo();
   const activeId = useActiveProfile();
   const nexusProfiles = useNexusProfiles();
@@ -115,7 +118,7 @@ export function ProfileMenu() {
   const stats: { icon: LucideIcon; label: string; value: string }[] = [
     { icon: Cpu, label: "CPU", value: profile?.cpuModel ?? "—" },
     { icon: CircuitBoard, label: "GPU", value: profile?.gpuName ?? "—" },
-    { icon: MemoryStick, label: "RAM", value: mem ? formatBytes(mem.totalBytes, 0) : "—" },
+    { icon: MemoryStick, label: "RAM", value: memTotalBytes != null ? formatBytes(memTotalBytes, 0) : "—" },
   ];
   const session: { icon: LucideIcon; label: string; value: string }[] = [
     { icon: Clock, label: "Uptime", value: formatUptime(uptime) },

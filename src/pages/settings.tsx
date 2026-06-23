@@ -45,10 +45,8 @@ import { usePrefsStore, type AnimationLevel } from "@/store/prefs-store";
 import {
   useCapabilities,
   useHardwareProfile,
-  useMemory,
-  useGpu,
-  useBattery,
 } from "@/hooks/use-telemetry";
+import { useShallow } from "zustand/react/shallow";
 import { usePowerInfo, useControlActions } from "@/hooks/use-control";
 import { useIntegrations } from "@/hooks/use-integrations";
 import {
@@ -219,8 +217,14 @@ export default function SettingsPage() {
 function SystemPanel() {
   const profile = useHardwareProfile();
   const caps = useCapabilities();
-  const mem = useMemory();
-  const gpu = useGpu();
+  // Only the *static* totals are displayed here — subscribe to those alone so
+  // per-tick telemetry (used%, temps, clocks) never re-renders this panel.
+  const hw = useTelemetryStore(
+    useShallow((s) => ({
+      memTotalBytes: s.snapshot?.memory?.totalBytes ?? null,
+      vramTotalMb: s.snapshot?.gpu?.vramTotalMb ?? null,
+    })),
+  );
   const [kernel, setKernel] = useState<string>("");
 
   useEffect(() => {
@@ -243,9 +247,9 @@ function SystemPanel() {
         </div>
         <div>
           <StatRow label="CPU" value={profile?.cpuModel ?? "—"} />
-          <StatRow label="Memory" value={mem ? `${formatBytes(mem.totalBytes, 0)} total` : "—"} />
+          <StatRow label="Memory" value={hw.memTotalBytes != null ? `${formatBytes(hw.memTotalBytes, 0)} total` : "—"} />
           <StatRow label="GPU" value={profile?.gpuName ?? "—"} />
-          <StatRow label="VRAM" value={gpu ? formatBytes(gpu.vramTotalMb * 1048576, 0) : "—"} />
+          <StatRow label="VRAM" value={hw.vramTotalMb != null ? formatBytes(hw.vramTotalMb * 1048576, 0) : "—"} />
         </div>
       </div>
       <div className="mt-md">
@@ -475,7 +479,22 @@ function DiagnosticsPanel() {
 /* ------------------------------- Battery --------------------------------- */
 
 function BatteryPanel() {
-  const battery = useBattery();
+  // Subscribe to the *displayed* values only, rounded to what the UI shows, so
+  // sub-unit power/voltage jitter on every tick doesn't re-render this panel.
+  const battery = useTelemetryStore(
+    useShallow((s) => {
+      const b = s.snapshot?.battery;
+      if (!b?.present) return null;
+      return {
+        chargePercent: Math.round(b.chargePercent),
+        status: b.status,
+        healthPercent: Math.round(b.healthPercent),
+        cycleCount: b.cycleCount,
+        energyFullWh: Math.round(b.energyFullWh * 10) / 10,
+        energyDesignWh: Math.round(b.energyDesignWh * 10) / 10,
+      };
+    }),
+  );
   return (
     <GlassCard padding="lg">
       <div className="mb-md flex items-center justify-between">
@@ -485,12 +504,12 @@ function BatteryPanel() {
         </div>
         <Link to="/battery"><Button variant="solid" size="sm"><BatteryCharging className="h-4 w-4" /> Open Battery Center</Button></Link>
       </div>
-      {battery?.present ? (
+      {battery ? (
         <div className="grid grid-cols-1 gap-x-lg sm:grid-cols-2">
           <div>
-            <StatRow label="Charge" value={`${battery.chargePercent.toFixed(0)}%`} />
+            <StatRow label="Charge" value={`${battery.chargePercent}%`} />
             <StatRow label="Status" value={battery.status} />
-            <StatRow label="Health" value={`${battery.healthPercent.toFixed(0)}%`} />
+            <StatRow label="Health" value={`${battery.healthPercent}%`} />
           </div>
           <div>
             <StatRow label="Cycles" value={`${battery.cycleCount}`} />
