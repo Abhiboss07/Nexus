@@ -16,6 +16,7 @@ _Built to surpass HP OMEN Gaming Hub, ASUS Armoury Crate, Lenovo Vantage, Alienw
 ![TailwindCSS](https://img.shields.io/badge/Tailwind-tokens-06B6D4?logo=tailwindcss&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)
 ![Tests](https://img.shields.io/badge/backend%20tests-159%20passing-3FB950)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
 </div>
 
@@ -250,7 +251,7 @@ Omen-Hub/
 
 ## 📄 License
 
-This project is not yet licensed for redistribution — **© 2026 the Nexus Control Center authors, all rights reserved**. Open an issue if you'd like to discuss usage.
+Released under the **[MIT License](LICENSE)** — © 2026 Abhiboss07. Free to use, modify and distribute; the only condition is that the copyright notice travels with the code.
 
 <div align="center">
 <br/>

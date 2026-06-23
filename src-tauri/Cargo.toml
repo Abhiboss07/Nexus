@@ -5,6 +5,7 @@ description = "Nexus Control Center — next-generation Linux desktop control ce
 authors = ["Nexus"]
 edition = "2021"
 rust-version = "1.77.2"
+license = "MIT"
 
 [lib]
 name = "nexus_lib"
