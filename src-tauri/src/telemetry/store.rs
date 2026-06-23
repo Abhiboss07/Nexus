@@ -122,6 +122,9 @@ pub struct SessionAnalytics {
     pub cpu_temp_max: f64,
     pub gpu_temp_avg: f64,
     pub gpu_temp_max: f64,
+    /// VRAM utilisation (% of total), avg/peak. 0 when total VRAM is unknown.
+    pub vram_pct_avg: f64,
+    pub vram_pct_max: f64,
     /// Avg combined CPU+GPU package power (W).
     pub power_avg_w: f64,
     /// Number of samples that actually carried a frame rate.
@@ -218,6 +221,7 @@ impl TelemetryStore {
         // ADD COLUMN errors harmlessly when it's already present).
         for stmt in [
             "ALTER TABLE samples ADD COLUMN fps REAL",
+            "ALTER TABLE samples ADD COLUMN vram_pct REAL",
             "ALTER TABLE agg_hourly ADD COLUMN fps_avg REAL",
             "ALTER TABLE agg_hourly ADD COLUMN fps_max REAL",
         ] {
@@ -303,13 +307,18 @@ impl TelemetryStore {
         let bat = snap.battery.as_ref();
         let cpu_fan = fan_rpm(&snap.fans, "CPU Fan");
         let gpu_fan = fan_rpm(&snap.fans, "GPU Fan");
+        // VRAM utilisation as a % of total — the comparable signal for
+        // detecting VRAM pressure (raw `vram_used` MB is kept for the chart).
+        let vram_pct = gpu.and_then(|g| {
+            (g.vram_total_mb > 0).then(|| g.vram_used_mb as f64 / g.vram_total_mb as f64 * 100.0)
+        });
         let conn = self.lock()?;
         conn.execute(
             "INSERT INTO samples
                (session_id, ts, cpu_usage, cpu_temp, cpu_power,
                 gpu_usage, gpu_temp, gpu_power, vram_used, mem_usage,
-                cpu_fan, gpu_fan, battery_pct, battery_power, fps)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                cpu_fan, gpu_fan, battery_pct, battery_power, fps, vram_pct)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
             params![
                 session_id,
                 snap.timestamp as i64,
@@ -326,6 +335,7 @@ impl TelemetryStore {
                 bat.map(|b| b.charge_percent),
                 bat.map(|b| b.power_draw_w),
                 fps,
+                vram_pct,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -569,7 +579,8 @@ impl TelemetryStore {
                         AVG(COALESCE(cpu_power,0) + COALESCE(gpu_power,0)),
                         SUM(CASE WHEN fps IS NOT NULL THEN 1 ELSE 0 END),
                         AVG(fps), MIN(fps), MAX(fps),
-                        SUM(CASE WHEN cpu_temp >= 90 OR gpu_temp >= 90 THEN 1 ELSE 0 END)
+                        SUM(CASE WHEN cpu_temp >= 90 OR gpu_temp >= 90 THEN 1 ELSE 0 END),
+                        AVG(vram_pct), MAX(vram_pct)
                    FROM samples WHERE session_id = ?1",
                 params![session_id],
                 |r| {
@@ -589,6 +600,9 @@ impl TelemetryStore {
                         cpu_temp_max: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
                         gpu_temp_avg: r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
                         gpu_temp_max: r.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+                        // Column 16 (throttle SUM) is recomputed separately below.
+                        vram_pct_avg: r.get::<_, Option<f64>>(17)?.unwrap_or(0.0),
+                        vram_pct_max: r.get::<_, Option<f64>>(18)?.unwrap_or(0.0),
                         power_avg_w: r.get::<_, Option<f64>>(11)?.unwrap_or(0.0),
                         fps_samples: r.get::<_, Option<i64>>(12)?.unwrap_or(0),
                         fps_avg: r.get::<_, Option<f64>>(13)?.unwrap_or(0.0),

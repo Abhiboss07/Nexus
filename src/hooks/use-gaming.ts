@@ -47,6 +47,8 @@ function demoAnalytics(id: number): SessionAnalytics {
     cpuTempMax: 84,
     gpuTempAvg: 56,
     gpuTempMax: 71,
+    vramPctAvg: 63,
+    vramPctMax: 88,
     powerAvgW: 62,
     fpsSamples: 0,
     fpsAvg: 0,

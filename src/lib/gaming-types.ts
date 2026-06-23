@@ -16,6 +16,8 @@ export interface SessionAnalytics {
   cpuTempMax: number;
   gpuTempAvg: number;
   gpuTempMax: number;
+  vramPctAvg: number;
+  vramPctMax: number;
   powerAvgW: number;
   fpsSamples: number;
   fpsAvg: number;
@@ -25,7 +27,7 @@ export interface SessionAnalytics {
   throttlePct: number;
 }
 
-export type LimiterKind = "cpu" | "gpu" | "thermal" | "memory";
+export type LimiterKind = "cpu" | "gpu" | "vram" | "thermal" | "memory" | "stutter";
 
 export interface Limiter {
   kind: LimiterKind;
