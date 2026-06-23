@@ -5,6 +5,8 @@ import {
   CircuitBoard,
   MemoryStick,
   Thermometer,
+  Layers,
+  AudioWaveform,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -25,7 +27,9 @@ const LIMITER: Record<string, { icon: LucideIcon; cls: string }> = {
   thermal: { icon: Thermometer, cls: "bg-danger/12 text-danger" },
   cpu: { icon: Cpu, cls: "bg-warning/12 text-warning" },
   gpu: { icon: CircuitBoard, cls: "bg-info/12 text-info" },
+  vram: { icon: Layers, cls: "bg-iris/12 text-iris" },
   memory: { icon: MemoryStick, cls: "bg-accent/12 text-accent-strong" },
+  stutter: { icon: AudioWaveform, cls: "bg-warning/12 text-warning" },
 };
 
 function fmtWhen(ts: number): string {
@@ -136,6 +140,9 @@ export function GamingIntelligence() {
               <Stat label="Avg CPU" value={`${analytics.cpuUsageAvg.toFixed(0)}%`} />
               <Stat label="Avg GPU" value={`${analytics.gpuUsageAvg.toFixed(0)}%`} />
               <Stat label="Avg RAM" value={`${analytics.memUsageAvg.toFixed(0)}%`} />
+              {analytics.vramPctMax > 0 && (
+                <Stat label="Peak VRAM" value={`${analytics.vramPctMax.toFixed(0)}%`} tone={analytics.vramPctMax >= 92 ? "danger" : undefined} />
+              )}
               <Stat label="Peak CPU temp" value={`${analytics.cpuTempMax.toFixed(0)}°C`} tone={analytics.cpuTempMax >= 90 ? "danger" : undefined} />
               <Stat label="Peak GPU temp" value={`${analytics.gpuTempMax.toFixed(0)}°C`} />
               <Stat label="Avg power" value={`${analytics.powerAvgW.toFixed(0)} W`} />

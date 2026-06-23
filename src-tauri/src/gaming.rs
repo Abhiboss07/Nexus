@@ -23,7 +23,7 @@ fn clamp_conf(v: f64) -> u8 {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Limiter {
-    /// cpu | gpu | thermal | memory
+    /// cpu | gpu | vram | thermal | memory | stutter
     pub kind: String,
     pub confidence: u8,
     pub title: String,
@@ -130,6 +130,25 @@ pub fn detect_limiters(a: &SessionAnalytics) -> Vec<Limiter> {
         });
     }
 
+    // VRAM-bound — exhausted VRAM forces texture streaming over PCIe → hitching.
+    // Distinct from system-memory pressure: a card can be VRAM-full while system
+    // RAM is fine (high-res textures), and the fix is different.
+    if a.vram_pct_max >= 92.0 || a.vram_pct_avg >= 85.0 {
+        let conf = clamp_conf(
+            35.0 + (a.vram_pct_avg - 80.0).max(0.0) * 3.0 + (a.vram_pct_max - 90.0).max(0.0) * 4.0,
+        );
+        factors.push(Limiter {
+            kind: "vram".into(),
+            confidence: conf,
+            title: "VRAM limited".into(),
+            detail: format!(
+                "VRAM averaged {:.0}% (peak {:.0}%) — once it fills, textures stream from system RAM over PCIe and the game hitches.",
+                a.vram_pct_avg, a.vram_pct_max
+            ),
+            recommendation: "Lower texture quality or resolution, disable HD texture packs, or close other GPU apps.".into(),
+        });
+    }
+
     // CPU-bound — CPU pinned while the GPU has headroom.
     if a.cpu_usage_avg >= 85.0 && a.gpu_usage_avg < 80.0 {
         let conf = clamp_conf(40.0 + (a.cpu_usage_avg - 85.0) * 3.0 + (80.0 - a.gpu_usage_avg) * 0.8);
@@ -158,6 +177,26 @@ pub fn detect_limiters(a: &SessionAnalytics) -> Vec<Limiter> {
             ),
             recommendation: "Lower resolution/quality or enable upscaling (DLSS/FSR) for more frames.".into(),
         });
+    }
+
+    // Frame-pacing / stutter — only meaningful with real FPS samples. A wide gap
+    // between the average and the 1% low means hitching the player feels even
+    // when the average frame rate looks healthy.
+    if a.fps_samples >= 20 && a.fps_avg > 1.0 {
+        let ratio = a.fps_low1pct / a.fps_avg; // 1.0 = perfectly even pacing
+        if ratio < 0.6 {
+            let conf = clamp_conf(40.0 + (0.6 - ratio) * 140.0);
+            factors.push(Limiter {
+                kind: "stutter".into(),
+                confidence: conf,
+                title: "Inconsistent frame pacing".into(),
+                detail: format!(
+                    "1% lows ({:.0} fps) sit well under the {:.0} fps average — visible stutter despite a healthy-looking average.",
+                    a.fps_low1pct, a.fps_avg
+                ),
+                recommendation: "Cap FPS just below the 1% low, enable VRR/G-Sync/FreeSync, or address the VRAM/CPU spikes above.".into(),
+            });
+        }
     }
 
     factors.sort_by_key(|l| std::cmp::Reverse(l.confidence));
@@ -320,6 +359,43 @@ mod tests {
         let a = analytics(50.0, 60.0, 92.0, 70.0, 70.0, 0.0);
         let f = detect_limiters(&a);
         assert!(f.iter().any(|l| l.kind == "memory"));
+    }
+
+    #[test]
+    fn vram_pressure_is_distinct_from_system_memory() {
+        // System RAM is fine, but VRAM is exhausted → vram limiter, not memory.
+        let a = SessionAnalytics {
+            vram_pct_avg: 88.0,
+            vram_pct_max: 99.0,
+            ..analytics(50.0, 75.0, 55.0, 70.0, 72.0, 0.0)
+        };
+        let f = detect_limiters(&a);
+        assert!(f.iter().any(|l| l.kind == "vram"));
+        assert!(!f.iter().any(|l| l.kind == "memory"));
+    }
+
+    #[test]
+    fn frame_pacing_flagged_when_1pct_low_far_below_avg() {
+        // Healthy temps/usage but 1% low at 40 vs 120 avg → stutter limiter.
+        let a = SessionAnalytics {
+            fps_samples: 1000,
+            fps_avg: 120.0,
+            fps_low1pct: 40.0,
+            ..analytics(55.0, 80.0, 55.0, 70.0, 72.0, 0.0)
+        };
+        let f = detect_limiters(&a);
+        assert!(f.iter().any(|l| l.kind == "stutter"));
+    }
+
+    #[test]
+    fn even_frame_pacing_has_no_stutter_flag() {
+        let a = SessionAnalytics {
+            fps_samples: 1000,
+            fps_avg: 120.0,
+            fps_low1pct: 105.0,
+            ..analytics(55.0, 80.0, 55.0, 70.0, 72.0, 0.0)
+        };
+        assert!(!detect_limiters(&a).iter().any(|l| l.kind == "stutter"));
     }
 
     #[test]
