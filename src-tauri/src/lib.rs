@@ -5,6 +5,7 @@
 //! command surface, and provides production desktop integration: system tray,
 //! single-instance, autostart, close-to-tray, and crash detection.
 
+mod battery_events;
 mod commands;
 mod control;
 mod diagnostics;
@@ -108,6 +109,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -306,10 +308,16 @@ pub fn run() {
                 let mut last_store = std::time::Instant::now()
                     .checked_sub(Duration::from_secs(60))
                     .unwrap_or_else(std::time::Instant::now);
+                // Backend battery-event detector — fires native notifications /
+                // bell records / `battery://event` regardless of window state.
+                let mut bat_engine = battery_events::BatteryEventEngine::new();
                 loop {
                     let snapshot = svc.lock().ok().map(|mut s| s.collect());
                     if let Some(snapshot) = snapshot {
                         let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
+                        if let Some(bat) = snapshot.battery.as_ref() {
+                            bat_engine.evaluate(&handle, bat);
+                        }
                         if last_store.elapsed().as_millis() >= STORE_EVERY_MS {
                             if let Some(sid) = stream_store.current_session() {
                                 // Live FPS from MangoHud's logs when a game is

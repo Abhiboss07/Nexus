@@ -403,6 +403,27 @@ export async function onTelemetry(
   return listen<Snapshot>(TELEMETRY_EVENT, (e) => handler(e.payload));
 }
 
+/** A power-transition event emitted by the backend battery engine. */
+export interface BatteryEventPayload {
+  event: "connect" | "disconnect" | "fastCharge" | "slowCharge" | "full" | "low" | "critical";
+  chargePercent: number;
+  status: string;
+  powerW: number;
+}
+
+/**
+ * Subscribe to backend-detected battery events. The backend already records the
+ * bell + fires the native notification; this stream is for an open UI to layer on
+ * its toast + sound + animation. Returns an unlisten function (no-op outside Tauri).
+ */
+export async function onBatteryEvent(
+  handler: (e: BatteryEventPayload) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<BatteryEventPayload>("battery://event", (e) => handler(e.payload));
+}
+
 /* ----- Notification Center ----- */
 
 export const notifAdd = (kind: string, severity: string, title: string, body = "") =>

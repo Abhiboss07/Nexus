@@ -197,6 +197,14 @@ pub fn push(app: &tauri::AppHandle, kind: &str, severity: &str, title: &str, bod
     }
 }
 
+/// Fire a native OS desktop notification (libnotify/DBus on Linux). Best-effort
+/// and silent on failure (no notification daemon, etc.). Surfaces to the desktop
+/// even when the Nexus window is hidden or closed.
+pub fn notify_native(app: &tauri::AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
