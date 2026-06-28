@@ -8,6 +8,8 @@ import {
   Download,
   Trash2,
   RotateCcw,
+  Sparkles,
+  Pencil,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass";
 import { Switch } from "@/components/ui/switch";
@@ -24,6 +26,7 @@ import {
   type BatteryEvent,
 } from "@/store/battery-events-store";
 import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
+import { EffectBuilder } from "@/components/battery/effect-builder";
 import { playSound } from "@/lib/sound";
 import { pushToast } from "@/store/toast-store";
 import { cn } from "@/lib/cn";
@@ -55,17 +58,26 @@ export function BatteryEventsPanel() {
   const s = useBatteryEventsStore();
   const [activeEvent, setActiveEvent] = useState<BatteryEvent>("connect");
   const [nonce, setNonce] = useState(0);
+  const [editingEffectId, setEditingEffectId] = useState<string | null>(null);
 
   const meta = BATTERY_EVENTS.find((e) => e.id === activeEvent)!;
   const cfg = s.events[activeEvent];
   const animOptions = meta.kind === "continuous" ? CONTINUOUS_ANIMS : ONESHOT_ANIMS;
+  const activeEffect = cfg.effectId ? s.customEffects.find((e) => e.id === cfg.effectId) ?? null : null;
+  const editingEffect = editingEffectId ? s.customEffects.find((e) => e.id === editingEffectId) ?? null : null;
 
-  // Replay one-shot previews whenever the event or its anim changes.
+  // Replay one-shot previews whenever the event, its anim or its effect changes.
   useEffect(() => {
     if (meta.kind === "oneshot") setNonce((n) => n + 1);
-  }, [activeEvent, cfg.anim, meta.kind]);
+  }, [activeEvent, cfg.anim, cfg.effectId, meta.kind]);
 
-  const override: GlyphOverride = { anim: cfg.anim, kind: meta.kind, nonce };
+  const newEffect = () => {
+    const id = s.createEffect("Custom effect");
+    s.setEventEffect(activeEvent, id);
+    setEditingEffectId(id);
+  };
+
+  const override: GlyphOverride = { anim: cfg.anim, kind: meta.kind, nonce, effect: activeEffect };
 
   return (
     <GlassCard padding="lg">
@@ -119,13 +131,56 @@ export function BatteryEventsPanel() {
 
           <div>
             <span className="mb-xs block text-xs font-medium text-content-muted">Animation</span>
-            <div className="flex flex-wrap gap-xs">
+            <div className={cn("flex flex-wrap gap-xs transition-opacity", activeEffect && "opacity-40")}>
               {animOptions.map((o) => (
-                <Chip key={o.id} active={cfg.anim === o.id} onClick={() => s.setEventAnim(activeEvent, o.id)}>
+                <Chip key={o.id} active={!activeEffect && cfg.anim === o.id} onClick={() => s.setEventAnim(activeEvent, o.id)}>
                   {o.label}
                 </Chip>
               ))}
             </div>
+          </div>
+
+          <div>
+            <div className="mb-xs flex items-center justify-between">
+              <span className="flex items-center gap-xs text-xs font-medium text-content-muted">
+                <Sparkles className="h-3.5 w-3.5" /> Custom effect
+              </span>
+              <Button variant="ghost" size="sm" onClick={newEffect}>
+                <Plus className="h-3.5 w-3.5" /> New
+              </Button>
+            </div>
+            {s.customEffects.length > 0 ? (
+              <div className="flex flex-wrap gap-xs">
+                {s.customEffects.map((e) => {
+                  const active = cfg.effectId === e.id;
+                  return (
+                    <div
+                      key={e.id}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md border pl-sm pr-1 py-2xs",
+                        active ? "border-accent/60 bg-accent/12" : "border-border",
+                      )}
+                    >
+                      <button
+                        onClick={() => s.setEventEffect(activeEvent, active ? null : e.id)}
+                        className={cn("text-2xs font-medium", active ? "text-accent-strong" : "text-content-muted hover:text-content")}
+                      >
+                        {e.name}
+                      </button>
+                      <button
+                        onClick={() => setEditingEffectId((id) => (id === e.id ? null : e.id))}
+                        className="text-content-subtle hover:text-content"
+                        title="Edit effect"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-2xs text-content-subtle">No custom effects yet — build one with “New”.</p>
+            )}
           </div>
 
           <SoundPicker
@@ -153,6 +208,12 @@ export function BatteryEventsPanel() {
           )}
         </div>
       </div>
+
+      {editingEffect && (
+        <div className="mt-md">
+          <EffectBuilder effect={editingEffect} onDelete={() => setEditingEffectId(null)} />
+        </div>
+      )}
 
       <p className="mt-md text-2xs text-content-subtle">
         Animations play on the battery graphic in Battery Center and respect the Appearance → Animations setting (off / low keeps

@@ -4,14 +4,19 @@ import { persist } from "zustand/middleware";
 /**
  * Battery Events preferences — how Nexus reacts to power-supply transitions.
  *
- * Persisted under `nexus.batteryEvents` (schema v2). v1 only knew about AC
- * connect/disconnect; v2 generalises to a per-event config map plus saveable
- * profiles. Each event owns an animation (rendered on the BatteryGlyph), a sound
- * (synthesised preset or user file) and an optional custom-audio data URL.
+ * Persisted under `nexus.batteryEvents`. Schema history:
+ *   v1 — AC connect/disconnect only.
+ *   v2 — per-event config map (connect/fast/slow/full/disconnect/low/critical)
+ *        + saveable profiles.
+ *   v3 — a custom-effect library: events may reference a composed CustomEffect
+ *        (layered animation) instead of a built-in anim.
+ *
+ * Each event owns an animation (built-in or a custom effect), a sound and an
+ * optional custom-audio data URL.
  */
 
 /**
- * Unified animation set. The *continuous* anims drive the charging glow/shimmer
+ * Built-in animation set. The *continuous* anims drive the charging glow/shimmer
  * while plugged in; the *one-shot* anims play once on a transition edge. The
  * BatteryGlyph branches on the id, so any event may use any anim — the editor
  * just surfaces the ones that read well for that event's kind.
@@ -42,6 +47,82 @@ export const ONESHOT_ANIMS: { id: AnimId; label: string }[] = [
   { id: "none", label: "None" },
 ];
 
+/* ----------------------------- Custom effects ----------------------------- */
+
+/** Composable layer primitives the BatteryGlyph can render. */
+export type LayerType = "glow" | "pulse" | "shimmer" | "ripple" | "flash" | "drain" | "spark";
+
+export const LAYER_TYPES: { id: LayerType; label: string }[] = [
+  { id: "glow", label: "Glow" },
+  { id: "pulse", label: "Pulse" },
+  { id: "shimmer", label: "Shimmer" },
+  { id: "ripple", label: "Ripple" },
+  { id: "flash", label: "Flash" },
+  { id: "drain", label: "Drain" },
+  { id: "spark", label: "Sparks" },
+];
+
+export type EaseId = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bounce" | "elastic";
+
+export const EASES: { id: EaseId; label: string }[] = [
+  { id: "linear", label: "Linear" },
+  { id: "easeIn", label: "Ease In" },
+  { id: "easeOut", label: "Ease Out" },
+  { id: "easeInOut", label: "Ease In·Out" },
+  { id: "bounce", label: "Bounce" },
+  { id: "elastic", label: "Elastic" },
+];
+
+/** Palette tokens a layer can be tinted with ("tone" = charge-band colour). */
+export type ColorToken = "tone" | "accent" | "iris" | "success" | "warning" | "danger" | "white";
+
+export const COLOR_TOKENS: { id: ColorToken; label: string }[] = [
+  { id: "tone", label: "Charge tone" },
+  { id: "accent", label: "Accent" },
+  { id: "iris", label: "Iris" },
+  { id: "success", label: "Green" },
+  { id: "warning", label: "Amber" },
+  { id: "danger", label: "Red" },
+  { id: "white", label: "White" },
+];
+
+export interface EffectLayer {
+  id: string;
+  type: LayerType;
+  delay: number; // ms before the layer starts
+  duration: number; // ms
+  ease: EaseId;
+  color: ColorToken;
+  intensity: number; // 0–1
+  repeat: boolean; // loop continuously vs play once
+}
+
+export interface CustomEffect {
+  id: string;
+  name: string;
+  layers: EffectLayer[];
+}
+
+const LAYER_TYPE_SET = new Set<LayerType>(["glow", "pulse", "shimmer", "ripple", "flash", "drain", "spark"]);
+const EASE_SET = new Set<EaseId>(["linear", "easeIn", "easeOut", "easeInOut", "bounce", "elastic"]);
+const COLOR_SET = new Set<ColorToken>(["tone", "accent", "iris", "success", "warning", "danger", "white"]);
+
+export function defaultLayer(type: LayerType): EffectLayer {
+  const continuous = type === "glow" || type === "pulse" || type === "shimmer";
+  return {
+    id: genId(),
+    type,
+    delay: 0,
+    duration: continuous ? 1400 : 700,
+    ease: "easeInOut",
+    color: "tone",
+    intensity: 0.6,
+    repeat: continuous,
+  };
+}
+
+/* -------------------------------- Sounds ---------------------------------- */
+
 /** Built-in synthesised presets + a user file. */
 export type SoundChoice = "none" | "chime" | "blip" | "power" | "custom";
 
@@ -55,6 +136,8 @@ export const SOUND_CHOICES: { id: SoundChoice; label: string }[] = [
 
 /** Custom audio is stored as a data URL; cap to keep persisted config small. */
 export const MAX_CUSTOM_SOUND_BYTES = 1024 * 1024;
+
+/* -------------------------------- Events ---------------------------------- */
 
 export type BatteryEvent =
   | "connect"
@@ -84,13 +167,16 @@ export const BATTERY_EVENTS: {
 ];
 
 export interface EventConfig {
+  /** Built-in animation (used when `effectId` is null). */
   anim: AnimId;
+  /** When set, a custom effect from the library overrides `anim`. */
+  effectId: string | null;
   sound: SoundChoice;
   /** Data URL for a user-supplied sound (null when unset). */
   custom: string | null;
 }
 
-/** The full, portable configuration — this is what profiles snapshot. */
+/** The portable per-profile configuration. */
 export interface BatteryEventsConfig {
   events: Record<BatteryEvent, EventConfig>;
   soundEnabled: boolean;
@@ -104,13 +190,13 @@ export interface BatteryProfile {
 }
 
 const DEFAULT_EVENTS: Record<BatteryEvent, EventConfig> = {
-  connect: { anim: "electric", sound: "chime", custom: null },
-  fastCharge: { anim: "neon", sound: "blip", custom: null },
-  slowCharge: { anim: "pulse", sound: "none", custom: null },
-  full: { anim: "fade", sound: "chime", custom: null },
-  disconnect: { anim: "ripple", sound: "power", custom: null },
-  low: { anim: "fade", sound: "blip", custom: null },
-  critical: { anim: "drain", sound: "power", custom: null },
+  connect: { anim: "electric", effectId: null, sound: "chime", custom: null },
+  fastCharge: { anim: "neon", effectId: null, sound: "blip", custom: null },
+  slowCharge: { anim: "pulse", effectId: null, sound: "none", custom: null },
+  full: { anim: "fade", effectId: null, sound: "chime", custom: null },
+  disconnect: { anim: "ripple", effectId: null, sound: "power", custom: null },
+  low: { anim: "fade", effectId: null, sound: "blip", custom: null },
+  critical: { anim: "drain", effectId: null, sound: "power", custom: null },
 };
 
 export function defaultConfig(): BatteryEventsConfig {
@@ -139,7 +225,11 @@ function genId(): string {
   } catch {
     /* fall through */
   }
-  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n));
 }
 
 /** Coerce arbitrary parsed JSON into a valid config, falling back to defaults. */
@@ -149,9 +239,7 @@ function sanitizeConfig(raw: unknown): BatteryEventsConfig {
   const r = raw as Partial<BatteryEventsConfig>;
 
   if (typeof r.soundEnabled === "boolean") base.soundEnabled = r.soundEnabled;
-  if (typeof r.volume === "number" && Number.isFinite(r.volume)) {
-    base.volume = Math.max(0, Math.min(1, r.volume));
-  }
+  if (typeof r.volume === "number" && Number.isFinite(r.volume)) base.volume = clamp01(r.volume);
 
   if (r.events && typeof r.events === "object") {
     for (const { id } of BATTERY_EVENTS) {
@@ -160,82 +248,179 @@ function sanitizeConfig(raw: unknown): BatteryEventsConfig {
       const ev = e as Partial<EventConfig>;
       if (ev.anim && ANIM_IDS.has(ev.anim)) base.events[id].anim = ev.anim;
       if (ev.sound && SOUND_IDS.has(ev.sound)) base.events[id].sound = ev.sound;
-      if (typeof ev.custom === "string" && ev.custom.startsWith("data:")) {
-        base.events[id].custom = ev.custom;
-      }
+      if (typeof ev.effectId === "string") base.events[id].effectId = ev.effectId;
+      if (typeof ev.custom === "string" && ev.custom.startsWith("data:")) base.events[id].custom = ev.custom;
     }
   }
   return base;
 }
 
+function sanitizeLayer(raw: unknown): EffectLayer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Partial<EffectLayer>;
+  if (!r.type || !LAYER_TYPE_SET.has(r.type)) return null;
+  const base = defaultLayer(r.type);
+  if (typeof r.id === "string") base.id = r.id;
+  if (typeof r.delay === "number" && Number.isFinite(r.delay)) base.delay = Math.max(0, Math.min(5000, r.delay));
+  if (typeof r.duration === "number" && Number.isFinite(r.duration)) {
+    base.duration = Math.max(100, Math.min(8000, r.duration));
+  }
+  if (r.ease && EASE_SET.has(r.ease)) base.ease = r.ease;
+  if (r.color && COLOR_SET.has(r.color)) base.color = r.color;
+  if (typeof r.intensity === "number" && Number.isFinite(r.intensity)) base.intensity = clamp01(r.intensity);
+  if (typeof r.repeat === "boolean") base.repeat = r.repeat;
+  return base;
+}
+
+function sanitizeEffects(raw: unknown): CustomEffect[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomEffect[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Partial<CustomEffect>;
+    if (typeof e.id !== "string" || typeof e.name !== "string") continue;
+    const layers = Array.isArray(e.layers)
+      ? e.layers.map(sanitizeLayer).filter((l): l is EffectLayer => l !== null)
+      : [];
+    out.push({ id: e.id, name: e.name, layers });
+  }
+  return out;
+}
+
 interface BatteryEventsState extends BatteryEventsConfig {
   profiles: BatteryProfile[];
+  customEffects: CustomEffect[];
 
   setEventAnim: (event: BatteryEvent, anim: AnimId) => void;
+  setEventEffect: (event: BatteryEvent, effectId: string | null) => void;
   setEventSound: (event: BatteryEvent, sound: SoundChoice) => void;
   setEventCustom: (event: BatteryEvent, url: string | null) => void;
   setSoundEnabled: (v: boolean) => void;
   setVolume: (v: number) => void;
   resetDefaults: () => void;
 
+  // Custom-effect library
+  createEffect: (name: string) => string;
+  renameEffect: (id: string, name: string) => void;
+  deleteEffect: (id: string) => void;
+  addLayer: (effectId: string, type: LayerType) => void;
+  updateLayer: (effectId: string, layerId: string, patch: Partial<EffectLayer>) => void;
+  removeLayer: (effectId: string, layerId: string) => void;
+  moveLayer: (effectId: string, layerId: string, dir: -1 | 1) => void;
+
   saveProfile: (name: string) => string;
   applyProfile: (id: string) => void;
   deleteProfile: (id: string) => void;
   renameProfile: (id: string, name: string) => void;
 
-  /** Serialise the live config (or a saved profile) to a JSON string. */
+  /** Serialise the live config (or a saved profile) + effect library to JSON. */
   exportConfig: (profileId?: string) => string;
-  /** Parse + validate a JSON config and add it as a new profile. */
+  /** Parse + validate a JSON config, merge any effects, add it as a profile. */
   importProfile: (json: string) => { ok: true; id: string } | { ok: false; error: string };
 }
+
+const mapEffect = (
+  effects: CustomEffect[],
+  id: string,
+  fn: (e: CustomEffect) => CustomEffect,
+): CustomEffect[] => effects.map((e) => (e.id === id ? fn(e) : e));
 
 export const useBatteryEventsStore = create<BatteryEventsState>()(
   persist(
     (set, get) => ({
       ...defaultConfig(),
       profiles: [],
+      customEffects: [],
 
       setEventAnim: (event, anim) =>
-        set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], anim } } })),
+        set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], anim, effectId: null } } })),
+      setEventEffect: (event, effectId) =>
+        set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], effectId } } })),
       setEventSound: (event, sound) =>
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], sound } } })),
       setEventCustom: (event, custom) =>
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], custom } } })),
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
-      setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
-      resetDefaults: () => set(defaultConfig()),
+      setVolume: (volume) => set({ volume: clamp01(volume) }),
+      resetDefaults: () => set({ ...defaultConfig() }),
+
+      createEffect: (name) => {
+        const id = genId();
+        const effect: CustomEffect = {
+          id,
+          name: name.trim() || "Custom effect",
+          layers: [defaultLayer("glow")],
+        };
+        set((s) => ({ customEffects: [...s.customEffects, effect] }));
+        return id;
+      },
+      renameEffect: (id, name) =>
+        set((s) => ({ customEffects: mapEffect(s.customEffects, id, (e) => ({ ...e, name: name.trim() || e.name })) })),
+      deleteEffect: (id) =>
+        set((s) => ({
+          customEffects: s.customEffects.filter((e) => e.id !== id),
+          // Clear any event still pointing at the deleted effect.
+          events: Object.fromEntries(
+            Object.entries(s.events).map(([k, v]) => [k, v.effectId === id ? { ...v, effectId: null } : v]),
+          ) as Record<BatteryEvent, EventConfig>,
+        })),
+      addLayer: (effectId, type) =>
+        set((s) => ({
+          customEffects: mapEffect(s.customEffects, effectId, (e) => ({ ...e, layers: [...e.layers, defaultLayer(type)] })),
+        })),
+      updateLayer: (effectId, layerId, patch) =>
+        set((s) => ({
+          customEffects: mapEffect(s.customEffects, effectId, (e) => ({
+            ...e,
+            layers: e.layers.map((l) => (l.id === layerId ? { ...l, ...patch } : l)),
+          })),
+        })),
+      removeLayer: (effectId, layerId) =>
+        set((s) => ({
+          customEffects: mapEffect(s.customEffects, effectId, (e) => ({
+            ...e,
+            layers: e.layers.filter((l) => l.id !== layerId),
+          })),
+        })),
+      moveLayer: (effectId, layerId, dir) =>
+        set((s) => ({
+          customEffects: mapEffect(s.customEffects, effectId, (e) => {
+            const i = e.layers.findIndex((l) => l.id === layerId);
+            const j = i + dir;
+            if (i < 0 || j < 0 || j >= e.layers.length) return e;
+            const layers = [...e.layers];
+            [layers[i], layers[j]] = [layers[j], layers[i]];
+            return { ...e, layers };
+          }),
+        })),
 
       saveProfile: (name) => {
         const id = genId();
         const { events, soundEnabled, volume } = get();
-        const profile: BatteryProfile = {
-          id,
-          name: name.trim() || "Untitled",
-          config: structuredClone({ events, soundEnabled, volume }),
-        };
-        set((s) => ({ profiles: [...s.profiles, profile] }));
+        set((s) => ({
+          profiles: [
+            ...s.profiles,
+            { id, name: name.trim() || "Untitled", config: structuredClone({ events, soundEnabled, volume }) },
+          ],
+        }));
         return id;
       },
       applyProfile: (id) => {
         const p = get().profiles.find((p) => p.id === id);
-        if (!p) return;
-        set(structuredClone(p.config));
+        if (p) set(structuredClone(p.config));
       },
       deleteProfile: (id) => set((s) => ({ profiles: s.profiles.filter((p) => p.id !== id) })),
       renameProfile: (id, name) =>
         set((s) => ({
-          profiles: s.profiles.map((p) =>
-            p.id === id ? { ...p, name: name.trim() || p.name } : p,
-          ),
+          profiles: s.profiles.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)),
         })),
 
       exportConfig: (profileId) => {
-        if (profileId) {
-          const p = get().profiles.find((p) => p.id === profileId);
-          if (p) return JSON.stringify({ nexusBatteryProfile: 2, name: p.name, ...p.config }, null, 2);
-        }
-        const { events, soundEnabled, volume } = get();
-        return JSON.stringify({ nexusBatteryProfile: 2, events, soundEnabled, volume }, null, 2);
+        const { events, soundEnabled, volume, customEffects, profiles } = get();
+        const cfg = profileId ? profiles.find((p) => p.id === profileId)?.config : { events, soundEnabled, volume };
+        const name = profileId ? profiles.find((p) => p.id === profileId)?.name : undefined;
+        const payload = { nexusBatteryProfile: 3, ...(name ? { name } : {}), ...(cfg ?? { events, soundEnabled, volume }), customEffects };
+        return JSON.stringify(payload, null, 2);
       },
       importProfile: (json) => {
         let parsed: unknown;
@@ -244,48 +429,50 @@ export const useBatteryEventsStore = create<BatteryEventsState>()(
         } catch {
           return { ok: false, error: "That's not valid JSON." };
         }
-        if (!parsed || typeof parsed !== "object") {
-          return { ok: false, error: "Unexpected file contents." };
-        }
+        if (!parsed || typeof parsed !== "object") return { ok: false, error: "Unexpected file contents." };
         const obj = parsed as Record<string, unknown>;
         const config = sanitizeConfig(obj);
+        const incoming = sanitizeEffects(obj.customEffects);
         const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported";
         const id = genId();
-        set((s) => ({ profiles: [...s.profiles, { id, name, config }] }));
+        set((s) => {
+          // Merge in any effects this profile references that we don't have yet.
+          const have = new Set(s.customEffects.map((e) => e.id));
+          const merged = [...s.customEffects, ...incoming.filter((e) => !have.has(e.id))];
+          return { customEffects: merged, profiles: [...s.profiles, { id, name, config }] };
+        });
         return { ok: true, id };
       },
     }),
     {
       name: "nexus.batteryEvents",
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
-        // v0/v1 → v2: lift the old connect/disconnect-only shape into the map.
-        // migrate returns only the persisted slice; zustand re-merges the actions.
-        if (version >= 2) return persisted as unknown as BatteryEventsState;
         const old = (persisted ?? {}) as Record<string, unknown>;
         const cfg = defaultConfig();
         if (typeof old.soundEnabled === "boolean") cfg.soundEnabled = old.soundEnabled;
-        if (typeof old.volume === "number") cfg.volume = Math.max(0, Math.min(1, old.volume));
+        if (typeof old.volume === "number") cfg.volume = clamp01(old.volume);
 
-        const lift = (
-          event: BatteryEvent,
-          animKey: string,
-          soundKey: string,
-          customKey: string,
-        ) => {
-          const a = old[animKey];
-          if (typeof a === "string" && ANIM_IDS.has(a as AnimId)) cfg.events[event].anim = a as AnimId;
-          const so = old[soundKey];
-          if (typeof so === "string" && SOUND_IDS.has(so as SoundChoice)) {
-            cfg.events[event].sound = so as SoundChoice;
-          }
-          const c = old[customKey];
-          if (typeof c === "string" && c.startsWith("data:")) cfg.events[event].custom = c;
-        };
-        lift("connect", "connectAnim", "connectSound", "connectCustom");
-        lift("disconnect", "disconnectAnim", "disconnectSound", "disconnectCustom");
+        if (version < 2) {
+          // v0/v1 → lift the old connect/disconnect-only shape into the map.
+          const lift = (event: BatteryEvent, animKey: string, soundKey: string, customKey: string) => {
+            const a = old[animKey];
+            if (typeof a === "string" && ANIM_IDS.has(a as AnimId)) cfg.events[event].anim = a as AnimId;
+            const so = old[soundKey];
+            if (typeof so === "string" && SOUND_IDS.has(so as SoundChoice)) cfg.events[event].sound = so as SoundChoice;
+            const c = old[customKey];
+            if (typeof c === "string" && c.startsWith("data:")) cfg.events[event].custom = c;
+          };
+          lift("connect", "connectAnim", "connectSound", "connectCustom");
+          lift("disconnect", "disconnectAnim", "disconnectSound", "disconnectCustom");
+        } else if (old.events && typeof old.events === "object") {
+          // v2 → carry events forward; sanitize fills in the new effectId field.
+          cfg.events = sanitizeConfig({ events: old.events, soundEnabled: cfg.soundEnabled, volume: cfg.volume }).events;
+        }
 
-        return { ...cfg, profiles: [] } as unknown as BatteryEventsState;
+        const profiles = Array.isArray(old.profiles) ? (old.profiles as BatteryProfile[]) : [];
+        const customEffects = sanitizeEffects(old.customEffects);
+        return { ...cfg, profiles, customEffects } as unknown as BatteryEventsState;
       },
     },
   ),
