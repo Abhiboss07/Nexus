@@ -1,18 +1,31 @@
-import { useRef, useState } from "react";
-import { Volume2, Play, Upload, BatteryCharging, BatteryLow } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Volume2,
+  Play,
+  Upload,
+  BatteryCharging,
+  Plus,
+  Download,
+  Trash2,
+  RotateCcw,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/glass";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import {
   useBatteryEventsStore,
-  CONNECT_ANIMS,
-  DISCONNECT_ANIMS,
+  BATTERY_EVENTS,
+  CONTINUOUS_ANIMS,
+  ONESHOT_ANIMS,
   SOUND_CHOICES,
   MAX_CUSTOM_SOUND_BYTES,
   type SoundChoice,
+  type BatteryEvent,
 } from "@/store/battery-events-store";
+import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
 import { playSound } from "@/lib/sound";
+import { pushToast } from "@/store/toast-store";
 import { cn } from "@/lib/cn";
 
 function readAudioFile(file: File): Promise<string> {
@@ -28,9 +41,31 @@ function readAudioFile(file: File): Promise<string> {
   });
 }
 
-/** Settings → Battery Events: charging sounds + animations. */
+function downloadJson(name: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Settings → Battery Events: per-event animations + sounds, profiles, live preview. */
 export function BatteryEventsPanel() {
   const s = useBatteryEventsStore();
+  const [activeEvent, setActiveEvent] = useState<BatteryEvent>("connect");
+  const [nonce, setNonce] = useState(0);
+
+  const meta = BATTERY_EVENTS.find((e) => e.id === activeEvent)!;
+  const cfg = s.events[activeEvent];
+  const animOptions = meta.kind === "continuous" ? CONTINUOUS_ANIMS : ONESHOT_ANIMS;
+
+  // Replay one-shot previews whenever the event or its anim changes.
+  useEffect(() => {
+    if (meta.kind === "oneshot") setNonce((n) => n + 1);
+  }, [activeEvent, cfg.anim, meta.kind]);
+
+  const override: GlyphOverride = { anim: cfg.anim, kind: meta.kind, nonce };
 
   return (
     <GlassCard padding="lg">
@@ -38,73 +73,193 @@ export function BatteryEventsPanel() {
         <BatteryCharging className="h-4 w-4 text-accent" /> Battery Events
       </h3>
       <p className="mb-md text-sm text-content-muted">
-        How Nexus reacts when the charger connects or disconnects.
+        Give every power transition its own animation and sound. Pick an event, tune it, and watch the live preview.
       </p>
 
-      {/* Sounds */}
-      <div className="space-y-md rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
+      <ProfileBar />
+
+      {/* Global sound */}
+      <div className="mt-md space-y-md rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
         <label className="flex items-center justify-between">
           <span className="flex items-center gap-xs text-sm font-medium text-content">
             <Volume2 className="h-4 w-4 text-content-muted" /> Sounds
           </span>
           <Switch checked={s.soundEnabled} onCheckedChange={s.setSoundEnabled} />
         </label>
-
-        <div className={cn("space-y-md transition-opacity", !s.soundEnabled && "pointer-events-none opacity-50")}>
-          <div className="flex items-center gap-md">
-            <span className="w-16 text-xs text-content-muted">Volume</span>
-            <Slider
-              value={[Math.round(s.volume * 100)]}
-              min={0}
-              max={100}
-              step={5}
-              onValueChange={(v) => s.setVolume(v[0] / 100)}
-              className="flex-1"
-            />
-            <span className="w-10 text-right text-xs tabular-nums text-content-subtle">{Math.round(s.volume * 100)}%</span>
-          </div>
-
-          <SoundPicker
-            label="AC connected"
-            choice={s.connectSound}
-            onChoice={s.setConnectSound}
-            custom={s.connectCustom}
-            setCustom={s.setConnectCustom}
-            onPreview={() => playSound(s.connectSound, s.connectCustom, s.volume)}
+        <div className={cn("flex items-center gap-md transition-opacity", !s.soundEnabled && "pointer-events-none opacity-50")}>
+          <span className="w-16 text-xs text-content-muted">Volume</span>
+          <Slider
+            value={[Math.round(s.volume * 100)]}
+            min={0}
+            max={100}
+            step={5}
+            onValueChange={(v) => s.setVolume(v[0] / 100)}
+            className="flex-1"
           />
-          <SoundPicker
-            label="AC disconnected"
-            choice={s.disconnectSound}
-            onChoice={s.setDisconnectSound}
-            custom={s.disconnectCustom}
-            setCustom={s.setDisconnectCustom}
-            onPreview={() => playSound(s.disconnectSound, s.disconnectCustom, s.volume)}
-          />
+          <span className="w-10 text-right text-xs tabular-nums text-content-subtle">{Math.round(s.volume * 100)}%</span>
         </div>
       </div>
 
-      {/* Animations */}
-      <div className="mt-md space-y-md rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
-        <ChipRow
-          icon={BatteryCharging}
-          label="Connect animation"
-          options={CONNECT_ANIMS}
-          value={s.connectAnim}
-          onChange={s.setConnectAnim}
-        />
-        <ChipRow
-          icon={BatteryLow}
-          label="Disconnect animation"
-          options={DISCONNECT_ANIMS}
-          value={s.disconnectAnim}
-          onChange={s.setDisconnectAnim}
-        />
-        <p className="text-2xs text-content-subtle">
-          Animations play on the battery graphic in Battery Center. Continuous and transition effects respect the
-          Appearance → Animations setting (off / low keeps them static).
-        </p>
+      {/* Event picker */}
+      <div className="mt-md">
+        <span className="mb-xs block text-xs font-medium text-content-muted">Event</span>
+        <div className="flex flex-wrap gap-xs">
+          {BATTERY_EVENTS.map((e) => (
+            <Chip key={e.id} active={activeEvent === e.id} onClick={() => setActiveEvent(e.id)}>
+              {e.label}
+            </Chip>
+          ))}
+        </div>
       </div>
+
+      {/* Editor + live preview */}
+      <div className="mt-md grid grid-cols-1 gap-md md:grid-cols-[1fr_auto]">
+        <div className="space-y-md rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
+          <p className="text-2xs text-content-subtle">{meta.desc}</p>
+
+          <div>
+            <span className="mb-xs block text-xs font-medium text-content-muted">Animation</span>
+            <div className="flex flex-wrap gap-xs">
+              {animOptions.map((o) => (
+                <Chip key={o.id} active={cfg.anim === o.id} onClick={() => s.setEventAnim(activeEvent, o.id)}>
+                  {o.label}
+                </Chip>
+              ))}
+            </div>
+          </div>
+
+          <SoundPicker
+            label="Sound"
+            choice={cfg.sound}
+            onChoice={(c) => s.setEventSound(activeEvent, c)}
+            custom={cfg.custom}
+            setCustom={(u) => s.setEventCustom(activeEvent, u)}
+            onPreview={() => playSound(cfg.sound, cfg.custom, s.volume)}
+          />
+        </div>
+
+        {/* Live preview */}
+        <div className="flex flex-col items-center justify-center gap-sm rounded-lg border border-border-subtle bg-surface-sunken/30 px-lg py-md">
+          <BatteryGlyph level={72} charging={meta.kind === "continuous"} override={override} />
+          {meta.kind === "oneshot" ? (
+            <button
+              onClick={() => setNonce((n) => n + 1)}
+              className="inline-flex items-center gap-xs rounded-md border border-border px-sm py-1 text-2xs font-medium text-content-muted transition-colors hover:text-content"
+            >
+              <RotateCcw className="h-3 w-3" /> Replay
+            </button>
+          ) : (
+            <span className="text-2xs text-content-subtle">Live preview</span>
+          )}
+        </div>
+      </div>
+
+      <p className="mt-md text-2xs text-content-subtle">
+        Animations play on the battery graphic in Battery Center and respect the Appearance → Animations setting (off / low keeps
+        them static).
+      </p>
     </GlassCard>
+  );
+}
+
+/** Save / apply / import / export the full Battery Events configuration. */
+function ProfileBar() {
+  const profiles = useBatteryEventsStore((s) => s.profiles);
+  const saveProfile = useBatteryEventsStore((s) => s.saveProfile);
+  const applyProfile = useBatteryEventsStore((s) => s.applyProfile);
+  const deleteProfile = useBatteryEventsStore((s) => s.deleteProfile);
+  const exportConfig = useBatteryEventsStore((s) => s.exportConfig);
+  const importProfile = useBatteryEventsStore((s) => s.importProfile);
+  const resetDefaults = useBatteryEventsStore((s) => s.resetDefaults);
+
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const save = () => {
+    saveProfile(name || "My profile");
+    setName("");
+    setNaming(false);
+    pushToast({ tone: "success", icon: "info", title: "Profile saved" });
+  };
+
+  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    const res = importProfile(text);
+    if (res.ok) pushToast({ tone: "success", icon: "info", title: "Profile imported" });
+    else pushToast({ tone: "danger", icon: "info", title: "Import failed", body: res.error });
+  }
+
+  return (
+    <div className="space-y-sm rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-content-muted">Profiles</span>
+        <div className="flex items-center gap-xs">
+          <Button variant="ghost" size="sm" onClick={() => downloadJson("battery-events.json", exportConfig())}>
+            <Download className="h-3.5 w-3.5" /> Export
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" /> Import
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setNaming((v) => !v)}>
+            <Plus className="h-3.5 w-3.5" /> Save current
+          </Button>
+        </div>
+      </div>
+
+      {naming && (
+        <div className="flex items-center gap-xs">
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            placeholder="Profile name"
+            className="flex-1 rounded-md border border-border bg-surface-sunken px-sm py-1 text-xs text-content outline-none focus:border-accent/60"
+          />
+          <Button size="sm" onClick={save}>Save</Button>
+        </div>
+      )}
+
+      {profiles.length > 0 ? (
+        <div className="flex flex-wrap gap-xs">
+          {profiles.map((p) => (
+            <div key={p.id} className="inline-flex items-center gap-1 rounded-md border border-border pl-sm pr-1 py-2xs">
+              <button onClick={() => applyProfile(p.id)} className="text-2xs font-medium text-content-muted hover:text-content">
+                {p.name}
+              </button>
+              <button
+                onClick={() => downloadJson(`${p.name.replace(/\s+/g, "-").toLowerCase()}.json`, exportConfig(p.id))}
+                className="text-content-subtle hover:text-content"
+                title="Export this profile"
+              >
+                <Download className="h-3 w-3" />
+              </button>
+              <button onClick={() => deleteProfile(p.id)} className="text-content-subtle hover:text-danger" title="Delete">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-2xs text-content-subtle">No saved profiles yet. Tune your events, then “Save current”.</p>
+      )}
+
+      <button
+        onClick={() => {
+          resetDefaults();
+          pushToast({ tone: "info", icon: "info", title: "Reset to defaults" });
+        }}
+        className="inline-flex items-center gap-xs text-2xs text-content-subtle transition-colors hover:text-content"
+      >
+        <RotateCcw className="h-3 w-3" /> Reset all to defaults
+      </button>
+
+      <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
+    </div>
   );
 }
 
@@ -166,35 +321,6 @@ function SoundPicker({
       <input ref={fileRef} type="file" accept="audio/*,.wav,.ogg,.mp3" hidden onChange={pick} />
       {choice === "custom" && !custom && <p className="mt-xs text-2xs text-content-subtle">Pick a wav / ogg / mp3 (max 1 MB).</p>}
       {err && <p className="mt-xs text-2xs text-danger">{err}</p>}
-    </div>
-  );
-}
-
-function ChipRow<T extends string>({
-  icon: Icon,
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  icon: typeof BatteryCharging;
-  label: string;
-  options: { id: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div>
-      <span className="mb-xs flex items-center gap-xs text-xs font-medium text-content-muted">
-        <Icon className="h-3.5 w-3.5" /> {label}
-      </span>
-      <div className="flex flex-wrap gap-xs">
-        {options.map((o) => (
-          <Chip key={o.id} active={value === o.id} onClick={() => onChange(o.id)}>
-            {o.label}
-          </Chip>
-        ))}
-      </div>
     </div>
   );
 }
