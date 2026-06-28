@@ -83,6 +83,7 @@ const SETTINGS_SECTIONS = [
   { id: "rgb", label: "RGB", icon: Keyboard },
   { id: "battery", label: "Battery", icon: BatteryCharging },
   { id: "battery-events", label: "Battery Events", icon: Volume2 },
+  { id: "startup", label: "Startup", icon: Rocket },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "updates", label: "Updates", icon: RefreshCw },
   { id: "plugins", label: "Plugins", icon: Puzzle },
@@ -200,6 +201,7 @@ export default function SettingsPage() {
           <motion.section variants={fadeUp} id="rgb"><RgbPanel /></motion.section>
           <motion.section variants={fadeUp} id="battery"><BatteryPanel /></motion.section>
           <motion.section variants={fadeUp} id="battery-events"><BatteryEventsPanel /></motion.section>
+          <motion.section variants={fadeUp} id="startup"><StartupPanel /></motion.section>
           <motion.section variants={fadeUp} id="ai"><AiPanel /></motion.section>
           <motion.section variants={fadeUp} id="updates"><UpdatesPanel /></motion.section>
           <motion.section variants={fadeUp} id="plugins"><PluginsPanel /></motion.section>
@@ -529,6 +531,62 @@ function BatteryPanel() {
           <li>This re-syncs the battery gauge — do it every few months, not daily.</li>
         </ol>
       </div>
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- Startup --------------------------------- */
+
+function StartupPanel() {
+  const [autostart, setAuto] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAutostart().then(setAuto).catch(() => {});
+  }, []);
+
+  const toggle = async (v: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await setAutostart(v);
+      setAuto(v);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <GlassCard padding="lg">
+      <h3 className="flex items-center gap-xs text-lg font-semibold text-content">
+        <Rocket className="h-4 w-4 text-accent" /> Startup &amp; Background
+      </h3>
+      <p className="mb-md text-sm text-content-muted">
+        Run Nexus as a background service so battery events work without the window open.
+      </p>
+
+      <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">
+        <span>
+          <span className="block text-sm font-medium text-content">Launch on login</span>
+          <span className="block text-2xs text-content-subtle">Start hidden in the tray when you sign in</span>
+        </span>
+        <Switch checked={autostart} onCheckedChange={toggle} disabled={busy || !isTauri()} />
+      </label>
+
+      <div className="mt-md space-y-xs rounded-lg border border-border-subtle bg-surface-sunken/30 p-md text-xs text-content-muted">
+        <p>
+          <span className="font-medium text-content">How background mode works.</span> With this on, Nexus starts minimized to the
+          system tray at login and runs the battery watcher in the background — plug/unplug fires the native notification, the
+          desktop overlay animation and the sound without opening the window.
+        </p>
+        <p>Closing the window hides it to the tray (the service keeps running). Use the tray menu to show the window or fully quit.</p>
+      </div>
+
+      {!isTauri() && <p className="mt-sm text-2xs text-content-subtle">Available in the desktop app.</p>}
+      {err && <p className="mt-sm text-2xs text-danger">{err}</p>}
     </GlassCard>
   );
 }

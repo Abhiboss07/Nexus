@@ -23,7 +23,8 @@
         "decorations": false,
         "transparent": true,
         "shadow": true,
-        "theme": "Dark"
+        "theme": "Dark",
+        "visible": false
       }
     ],
     "trayIcon": {

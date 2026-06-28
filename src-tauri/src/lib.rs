@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
@@ -257,11 +257,24 @@ pub fn run() {
             commands::notif_clear,
         ])
         .setup(move |app| {
+            // ----- Window visibility -----
+            // The window is created hidden (tauri.conf `visible: false`). Show it
+            // on a normal launch, but stay hidden — running as a tray/background
+            // service — when started at login (autostart passes `--minimized`).
+            // The telemetry + battery-event threads run regardless of the window,
+            // so battery events still fire (notification + overlay) headless.
+            let start_hidden = std::env::args().any(|a| a == "--minimized" || a == "--hidden");
+            if !start_hidden {
+                show_main(app.handle());
+            }
+
             // ----- System tray -----
+            let status = MenuItem::with_id(app, "status", "● Nexus service: running", false, None::<&str>)?;
+            let sep = PredefinedMenuItem::separator(app)?;
             let show = MenuItem::with_id(app, "show", "Show Nexus", true, None::<&str>)?;
             let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Nexus", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+            let menu = Menu::with_items(app, &[&status, &sep, &show, &hide, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("Nexus Control Center")
                 .menu(&menu);
