@@ -262,8 +262,8 @@ function sanitizeFx(raw: unknown): SoundFx {
     typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
   fx.fadeIn = num(r.fadeIn, 0, 5000, fx.fadeIn);
   fx.fadeOut = num(r.fadeOut, 0, 5000, fx.fadeOut);
-  fx.trimStart = num(r.trimStart, 0, 10000, fx.trimStart);
-  fx.trimEnd = num(r.trimEnd, 0, 10000, fx.trimEnd);
+  fx.trimStart = num(r.trimStart, 0, 30000, fx.trimStart);
+  fx.trimEnd = num(r.trimEnd, 0, 30000, fx.trimEnd);
   fx.pitch = num(r.pitch, -12, 12, fx.pitch);
   fx.speed = num(r.speed, 0.5, 2, fx.speed);
   fx.delay = num(r.delay, 0, 5000, fx.delay);

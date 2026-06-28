@@ -30,6 +30,7 @@ import {
 import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
 import { EffectBuilder } from "@/components/battery/effect-builder";
 import { SoundPackImport } from "@/components/battery/sound-pack-import";
+import { WaveformTrim } from "@/components/battery/waveform-trim";
 import { playSound } from "@/lib/sound";
 import { readAudioFile } from "@/lib/sound-pack";
 import { pushToast } from "@/store/toast-store";
@@ -191,6 +192,7 @@ export function BatteryEventsPanel() {
             <SoundFxControls
               fx={cfg.fx}
               custom={cfg.sound === "custom"}
+              customUrl={cfg.custom}
               onChange={(patch) => s.setEventFx(activeEvent, patch)}
               onReset={() => s.setEventFx(activeEvent, defaultFx())}
             />
@@ -331,11 +333,13 @@ function ProfileBar() {
 function SoundFxControls({
   fx,
   custom,
+  customUrl,
   onChange,
   onReset,
 }: {
   fx: SoundFx;
   custom: boolean;
+  customUrl: string | null;
   onChange: (patch: Partial<SoundFx>) => void;
   onReset: () => void;
 }) {
@@ -355,11 +359,11 @@ function SoundFxControls({
         <div className="mt-sm space-y-sm rounded-md border border-border-subtle bg-surface-sunken/40 p-sm">
           <FxRow label="Fade in" value={fx.fadeIn} min={0} max={3000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ fadeIn: v })} />
           <FxRow label="Fade out" value={fx.fadeOut} min={0} max={3000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ fadeOut: v })} />
-          {custom && (
-            <>
-              <FxRow label="Trim start" value={fx.trimStart} min={0} max={5000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ trimStart: v })} />
-              <FxRow label="Trim end" value={fx.trimEnd} min={0} max={5000} step={50} fmt={(v) => (v === 0 ? "end" : `${v}ms`)} onChange={(v) => onChange({ trimEnd: v })} />
-            </>
+          {custom && customUrl && (
+            <div>
+              <span className="mb-xs block text-2xs text-content-muted">Trim — drag the handles</span>
+              <WaveformTrim url={customUrl} trimStart={fx.trimStart} trimEnd={fx.trimEnd} onChange={onChange} />
+            </div>
           )}
           <FxRow label="Pitch" value={fx.pitch} min={-12} max={12} step={1} fmt={(v) => `${v > 0 ? "+" : ""}${v} st`} onChange={(v) => onChange({ pitch: v })} />
           <FxRow label="Speed" value={fx.speed} min={0.5} max={2} step={0.05} fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => onChange({ speed: v })} />

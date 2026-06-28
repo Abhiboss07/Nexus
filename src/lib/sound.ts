@@ -68,6 +68,13 @@ function playPresetAt(ac: AudioContext, name: "chime" | "blip" | "power", at: nu
 
 const bufferCache = new Map<string, AudioBuffer>();
 
+/** Decode an audio data URL into a cached AudioBuffer (for waveform rendering). */
+export async function decodeAudioUrl(url: string): Promise<AudioBuffer | null> {
+  const ac = audio();
+  if (!ac) return null;
+  return decode(ac, url);
+}
+
 async function decode(ac: AudioContext, url: string): Promise<AudioBuffer | null> {
   const cached = bufferCache.get(url);
   if (cached) return cached;
