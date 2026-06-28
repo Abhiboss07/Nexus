@@ -22,7 +22,6 @@ import {
   CONTINUOUS_ANIMS,
   ONESHOT_ANIMS,
   SOUND_CHOICES,
-  MAX_CUSTOM_SOUND_BYTES,
   defaultFx,
   type SoundChoice,
   type SoundFx,
@@ -30,22 +29,11 @@ import {
 } from "@/store/battery-events-store";
 import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
 import { EffectBuilder } from "@/components/battery/effect-builder";
+import { SoundPackImport } from "@/components/battery/sound-pack-import";
 import { playSound } from "@/lib/sound";
+import { readAudioFile } from "@/lib/sound-pack";
 import { pushToast } from "@/store/toast-store";
 import { cn } from "@/lib/cn";
-
-function readAudioFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (file.size > MAX_CUSTOM_SOUND_BYTES) {
-      reject(new Error("File too large — max 1 MB."));
-      return;
-    }
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error("Couldn't read that file."));
-    r.readAsDataURL(file);
-  });
-}
 
 function downloadJson(name: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
@@ -92,6 +80,10 @@ export function BatteryEventsPanel() {
       </p>
 
       <ProfileBar />
+
+      <div className="mt-md">
+        <SoundPackImport />
+      </div>
 
       {/* Global sound */}
       <div className="mt-md space-y-md rounded-lg border border-border-subtle bg-surface-sunken/30 p-md">

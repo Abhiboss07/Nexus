@@ -336,6 +336,8 @@ interface BatteryEventsState extends BatteryEventsConfig {
   setEventSound: (event: BatteryEvent, sound: SoundChoice) => void;
   setEventCustom: (event: BatteryEvent, url: string | null) => void;
   setEventFx: (event: BatteryEvent, patch: Partial<SoundFx>) => void;
+  /** Bulk-assign custom sounds to events (sound-pack import). */
+  applySoundPack: (entries: { event: BatteryEvent; url: string }[]) => void;
   setSoundEnabled: (v: boolean) => void;
   setVolume: (v: number) => void;
   resetDefaults: () => void;
@@ -383,6 +385,14 @@ export const useBatteryEventsStore = create<BatteryEventsState>()(
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], custom } } })),
       setEventFx: (event, patch) =>
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], fx: { ...s.events[event].fx, ...patch } } } })),
+      applySoundPack: (entries) =>
+        set((s) => {
+          const events = { ...s.events };
+          for (const { event, url } of entries) {
+            events[event] = { ...events[event], sound: "custom", custom: url };
+          }
+          return { events };
+        }),
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
       setVolume: (volume) => set({ volume: clamp01(volume) }),
       resetDefaults: () => set({ ...defaultConfig() }),
