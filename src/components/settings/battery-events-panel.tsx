@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   Volume2,
   Play,
@@ -28,9 +28,16 @@ import {
   type BatteryEvent,
 } from "@/store/battery-events-store";
 import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
-import { EffectBuilder } from "@/components/battery/effect-builder";
 import { SoundPackImport } from "@/components/battery/sound-pack-import";
-import { WaveformTrim } from "@/components/battery/waveform-trim";
+
+// Heavy editor surfaces — split out of the settings chunk and loaded only when
+// the user actually opens the effect builder or trims a custom sound.
+const EffectBuilder = lazy(() =>
+  import("@/components/battery/effect-builder").then((m) => ({ default: m.EffectBuilder })),
+);
+const WaveformTrim = lazy(() =>
+  import("@/components/battery/waveform-trim").then((m) => ({ default: m.WaveformTrim })),
+);
 import { playSound } from "@/lib/sound";
 import { readAudioFile } from "@/lib/sound-pack";
 import { simulateBatteryEvent } from "@/lib/ipc";
@@ -218,7 +225,9 @@ export function BatteryEventsPanel() {
 
       {editingEffect && (
         <div className="mt-md">
-          <EffectBuilder effect={editingEffect} onDelete={() => setEditingEffectId(null)} />
+          <Suspense fallback={<div className="rounded-lg border border-border-subtle p-md text-2xs text-content-subtle">Loading editor…</div>}>
+            <EffectBuilder effect={editingEffect} onDelete={() => setEditingEffectId(null)} />
+          </Suspense>
         </div>
       )}
 
@@ -379,7 +388,9 @@ function SoundFxControls({
           {custom && customUrl && (
             <div>
               <span className="mb-xs block text-2xs text-content-muted">Trim — drag the handles</span>
-              <WaveformTrim url={customUrl} trimStart={fx.trimStart} trimEnd={fx.trimEnd} onChange={onChange} />
+              <Suspense fallback={<div className="h-12 rounded-md border border-border-subtle" />}>
+                <WaveformTrim url={customUrl} trimStart={fx.trimStart} trimEnd={fx.trimEnd} onChange={onChange} />
+              </Suspense>
             </div>
           )}
           <FxRow label="Pitch" value={fx.pitch} min={-12} max={12} step={1} fmt={(v) => `${v > 0 ? "+" : ""}${v} st`} onChange={(v) => onChange({ pitch: v })} />

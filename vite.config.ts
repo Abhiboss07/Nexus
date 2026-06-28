@@ -53,12 +53,17 @@ export default defineConfig({
           // App code the on-demand overlay shares — kept in its own lean chunk so
           // the overlay never pulls the big shared `base` chunk (which carries
           // recharts-importing components it doesn't need).
+          // Only the overlay's actual deps go in battery-core (it's eagerly
+          // loaded via the always-on charging-events hook). The heavy editor
+          // surfaces (effect-builder, waveform-trim) are lazy()-imported and must
+          // stay out of this chunk so they split into on-demand chunks.
           if (
             id.includes("/src/store/battery-events-store") ||
             id.includes("/src/store/prefs-store") ||
             id.includes("/src/lib/sound") ||
             id.includes("/src/lib/cn") ||
-            id.includes("/src/components/battery/")
+            id.includes("/src/components/battery/battery-glyph") ||
+            id.includes("/src/components/battery/effect-layers")
           ) {
             return "battery-core";
           }
