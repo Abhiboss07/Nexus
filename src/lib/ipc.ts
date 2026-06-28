@@ -424,6 +424,10 @@ export async function onBatteryEvent(
   return listen<BatteryEventPayload>("battery://event", (e) => handler(e.payload));
 }
 
+/** Dev-only: fire a battery event by id through the real backend path. */
+export const simulateBatteryEvent = (event: BatteryEventPayload["event"]) =>
+  invoke<void>("simulate_battery_event", { event });
+
 /* ----- Notification Center ----- */
 
 export const notifAdd = (kind: string, severity: string, title: string, body = "") =>

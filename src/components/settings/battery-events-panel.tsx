@@ -33,6 +33,7 @@ import { SoundPackImport } from "@/components/battery/sound-pack-import";
 import { WaveformTrim } from "@/components/battery/waveform-trim";
 import { playSound } from "@/lib/sound";
 import { readAudioFile } from "@/lib/sound-pack";
+import { simulateBatteryEvent } from "@/lib/ipc";
 import { pushToast } from "@/store/toast-store";
 import { cn } from "@/lib/cn";
 
@@ -218,6 +219,22 @@ export function BatteryEventsPanel() {
       {editingEffect && (
         <div className="mt-md">
           <EffectBuilder effect={editingEffect} onDelete={() => setEditingEffectId(null)} />
+        </div>
+      )}
+
+      {import.meta.env.DEV && (
+        <div className="mt-md rounded-lg border border-dashed border-warning/40 bg-warning/5 p-md">
+          <span className="text-2xs font-medium uppercase tracking-wider text-warning">Dev · simulate event</span>
+          <p className="mb-xs mt-2xs text-2xs text-content-subtle">
+            Fires the real backend path (native notification + bell + toast/sound) without a physical plug/unplug.
+          </p>
+          <div className="flex flex-wrap gap-xs">
+            {BATTERY_EVENTS.map((e) => (
+              <Chip key={e.id} active={false} onClick={() => void simulateBatteryEvent(e.id)}>
+                {e.label}
+              </Chip>
+            ))}
+          </div>
         </div>
       )}
 

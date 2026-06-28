@@ -90,6 +90,28 @@ pub fn set_poll_interval(state: State<'_, AppState>, ms: u64) {
         .store(ms.clamp(250, 10_000), Ordering::Relaxed);
 }
 
+/// Dev/QA helper: fire a battery event by id without a real power-supply edge —
+/// drives the exact backend path (bell record + native notification +
+/// `battery://event`) so the end-to-end flow can be verified by hand. The UI
+/// exposes this only behind a dev-mode affordance.
+#[tauri::command]
+pub fn simulate_battery_event(app: AppHandle, event: String) -> Result<(), String> {
+    let ev = crate::battery_events::event_from_id(&event).ok_or_else(|| format!("unknown event '{event}'"))?;
+    use crate::battery_events::Event;
+    // Event-appropriate demo values so the notification text reads sensibly.
+    let (pct, power, status) = match ev {
+        Event::Critical => (8.0, 0.0, "Discharging"),
+        Event::Low => (18.0, 0.0, "Discharging"),
+        Event::Full => (100.0, 0.0, "Full"),
+        Event::Disconnect => (72.0, 0.0, "Discharging"),
+        Event::FastCharge => (61.0, 60.0, "Charging"),
+        Event::SlowCharge => (54.0, 12.0, "Charging"),
+        Event::Connect => (72.0, 45.0, "Charging"),
+    };
+    crate::battery_events::fire_event(&app, ev, pct, power, status);
+    Ok(())
+}
+
 /// On-demand network latency probe (kept out of the hot loop).
 #[tauri::command]
 pub fn get_latency(host: Option<String>) -> Option<f32> {

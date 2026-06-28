@@ -25,7 +25,7 @@ const CRIT_OFF: f32 = 13.0;
 const FULL_ON: f32 = 99.5;
 const FULL_OFF: f32 = 97.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Event {
     Connect,
     Disconnect,
@@ -70,18 +70,49 @@ impl Event {
         }
     }
 
-    fn body(self, b: &BatteryTelemetry) -> String {
-        let pct = b.charge_percent.round() as i32;
+    fn body(self, charge_percent: f32, power_draw_w: f32) -> String {
+        let pct = charge_percent.round() as i32;
         match self {
             Event::Connect => format!("Charging · {pct}%"),
             Event::Disconnect => format!("{pct}% · unplugged"),
-            Event::FastCharge => format!("{:.0} W · {pct}%", b.power_draw_w),
-            Event::SlowCharge => format!("{:.0} W · trickle charge", b.power_draw_w),
+            Event::FastCharge => format!("{:.0} W · {pct}%", power_draw_w),
+            Event::SlowCharge => format!("{:.0} W · trickle charge", power_draw_w),
             Event::Full => "Battery at 100%".to_string(),
             Event::Low => format!("{pct}% remaining"),
             Event::Critical => format!("{pct}% — plug in soon"),
         }
     }
+}
+
+/// Map a frontend event id back to an `Event` (used by the dev simulate command).
+pub fn event_from_id(id: &str) -> Option<Event> {
+    Some(match id {
+        "connect" => Event::Connect,
+        "disconnect" => Event::Disconnect,
+        "fastCharge" => Event::FastCharge,
+        "slowCharge" => Event::SlowCharge,
+        "full" => Event::Full,
+        "low" => Event::Low,
+        "critical" => Event::Critical,
+        _ => return None,
+    })
+}
+
+/// Fire one event's full effect: bell record + native notification + the
+/// `battery://event` stream. Shared by the live engine and the dev command.
+pub fn fire_event(app: &AppHandle, ev: Event, charge_percent: f32, power_w: f32, status: &str) {
+    let body = ev.body(charge_percent, power_w);
+    crate::notifications::push(app, "battery", ev.severity(), ev.title(), &body);
+    crate::notifications::notify_native(app, ev.title(), &body);
+    let _ = app.emit(
+        "battery://event",
+        EventPayload {
+            event: ev.id(),
+            charge_percent,
+            status: status.to_string(),
+            power_w,
+        },
+    );
 }
 
 /// Active-charging check from a Linux power-supply status string. Mirrors the TS
@@ -193,43 +224,13 @@ impl BatteryEventEngine {
     }
 
     fn fire(&self, app: &AppHandle, ev: Event, bat: &BatteryTelemetry) {
-        let body = ev.body(bat);
-        // 1) persistent bell record
-        crate::notifications::push(app, "battery", ev.severity(), ev.title(), &body);
-        // 2) native desktop notification (visible with the window closed)
-        crate::notifications::notify_native(app, ev.title(), &body);
-        // 3) live event for an open UI (toast + sound + in-app animation)
-        let _ = app.emit(
-            "battery://event",
-            EventPayload {
-                event: ev.id(),
-                charge_percent: bat.charge_percent,
-                status: bat.status.clone(),
-                power_w: bat.power_draw_w,
-            },
-        );
+        fire_event(app, ev, bat.charge_percent, bat.power_draw_w, &bat.status);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn bat(status: &str, pct: f32, power: f32) -> BatteryTelemetry {
-        BatteryTelemetry {
-            present: true,
-            status: status.to_string(),
-            charge_percent: pct,
-            health_percent: 90.0,
-            cycle_count: 100,
-            energy_now_wh: 40.0,
-            energy_full_wh: 50.0,
-            energy_design_wh: 58.0,
-            power_draw_w: power,
-            voltage_v: 12.0,
-            time_remaining_min: None,
-        }
-    }
 
     #[test]
     fn is_charging_never_matches_discharging() {
@@ -248,8 +249,16 @@ mod tests {
 
     #[test]
     fn body_formats_percent() {
-        assert_eq!(Event::Connect.body(&bat("Charging", 73.4, 45.0)), "Charging · 73%");
-        assert_eq!(Event::Critical.body(&bat("Discharging", 8.0, 12.0)), "8% — plug in soon");
+        assert_eq!(Event::Connect.body(73.4, 45.0), "Charging · 73%");
+        assert_eq!(Event::Critical.body(8.0, 12.0), "8% — plug in soon");
+    }
+
+    #[test]
+    fn event_from_id_roundtrips() {
+        for ev in [Event::Connect, Event::Disconnect, Event::FastCharge, Event::SlowCharge, Event::Full, Event::Low, Event::Critical] {
+            assert_eq!(event_from_id(ev.id()), Some(ev));
+        }
+        assert_eq!(event_from_id("bogus"), None);
     }
 
     #[test]

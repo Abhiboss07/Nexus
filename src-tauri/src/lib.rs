@@ -236,6 +236,7 @@ pub fn run() {
             commands::set_setup_complete,
             commands::get_autostart,
             commands::set_autostart,
+            commands::simulate_battery_event,
             commands::app_update_info,
             commands::check_for_update,
             commands::install_update,
