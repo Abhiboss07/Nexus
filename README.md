@@ -27,6 +27,7 @@ _Built to surpass HP OMEN Gaming Hub, ASUS Armoury Crate, Lenovo Vantage, Alienw
 - [✨ Highlights](#-highlights)
 - [🖼️ Screenshots](#️-screenshots)
 - [🧭 Feature tour](#-feature-tour)
+- [🔋 Battery Events](#-battery-events)
 - [🚀 Quick start](#-quick-start)
 - [🏗️ Architecture](#️-architecture)
 - [🎨 Design system](#-design-system)
@@ -78,7 +79,7 @@ Each item below is a real, shipping page in the app.
 | 📊 | **Dashboard** | System overview & live telemetry at a glance |
 | ⚡ | **Performance** | CPU, GPU & power tuning with live charts and fan curves |
 | 🌈 | **RGB Studio** | Lighting zones, 11 effects, profiles & theme sync |
-| 🔋 | **Battery Center** | Health, wear, lifespan prediction, charge guidance & charging effects |
+| 🔋 | **Battery Center** | Health, wear, lifespan prediction, charge guidance & a fully customizable [Battery Events](#-battery-events) system |
 | 💾 | **Storage Center** | Drives, usage & SMART health |
 | 🗂️ | **Storage Analyzer** | Treemap, largest files, duplicates & per-app usage |
 | 📋 | **Task Manager** | Processes, services & live resource usage |
@@ -88,7 +89,23 @@ Each item below is a real, shipping page in the app.
 | 🧩 | **Integrations** | Detects 16 ecosystem tools/runtimes with one-click install |
 | 🎮 | **Game Center** | Library scan, per-game profiles & game boost |
 | 🧠 | **Intelligence** | Reasoning, recommendations, trends & gaming analytics |
-| ⚙️ | **Settings** | Preferences, 3 themes, plugins & diagnostics export |
+| ⚙️ | **Settings** | Preferences, 3 themes, the Battery Events editor, plugins & diagnostics export |
+
+---
+
+## 🔋 Battery Events
+
+Most laptop apps give you a fixed list of charging animations. Nexus turns **every power transition** into a fully customizable experience — build your own animations and shape your own sounds, per event.
+
+| | |
+|---|---|
+| ⚡ **7 distinct events** | AC connected · fast charging · slow charging · fully charged · unplugged · battery low · battery critical — each with its own animation, sound and DSP. Fired from real telemetry edges with hysteresis (no flapping). |
+| 🎬 **Layered effect builder** | Compose your own animation from stackable layers — **glow · pulse · shimmer · ripple · flash · drain · sparks** — each with per-layer delay, duration, easing (incl. bounce/elastic), color, intensity and loop. Reorder live. |
+| 🔊 **Per-event sound DSP** | Fade in/out, trim, pitch, speed, delay and repeat — applied to the synthesized presets *or* your own `wav/mp3/ogg/flac`, all via Web Audio. |
+| 🌊 **Waveform trim** | Custom sounds get a real waveform with **draggable trim handles** — set start/end visually, not by guessing milliseconds. |
+| 📦 **Sound packs** | Bulk-import a folder of audio files; Nexus maps each to an event by filename. Save the set as a profile to switch packs in one click. |
+| 💾 **Profiles** | Save, apply and **import/export the whole setup as JSON** — animations, sounds and DSP travel together. |
+| 👁️ **Live preview** | Every change is reflected instantly on the battery graphic. Fully **reduce-motion gated** and isolated from the telemetry hot path — zero per-tick re-renders. |
 
 ---
 
@@ -198,6 +215,7 @@ Legend: ✅ shipped · 🚧 in progress · 🔭 planned
 | ✅ | **Persistent telemetry store** | SQLite sessions, retention, hourly aggregation, query APIs |
 | ✅ | **Gaming Intelligence v2** | Live MangoHud FPS, VRAM-bound + frame-pacing detection, auto game optimization |
 | ✅ | **Production desktop** | Full Tauri build, tray + autostart + single-instance, setup wizard, diagnostics, crash recovery |
+| ✅ | **Battery Events v2** | 7-event model, layered custom-effect builder, per-event sound DSP, waveform trim, sound-pack import, JSON profiles, live preview |
 | 🔭 | **More writes** | Battery charge limit (where supported), GPU/TDP tuning |
 | 🔭 | **Extensibility** | Plugin runtime + marketplace, theme sharing, auto-update |
 
