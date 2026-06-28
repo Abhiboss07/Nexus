@@ -112,6 +112,20 @@ pub fn simulate_battery_event(app: AppHandle, event: String) -> Result<(), Strin
     Ok(())
 }
 
+/// Whether the main window is currently shown (vs minimized to tray).
+fn window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(true)
+}
+
+/// The frontend queries this on load to seed its polling-pause gate, since a
+/// `--minimized` launch never emits a hide event.
+#[tauri::command]
+pub fn get_window_visible(app: AppHandle) -> bool {
+    window_visible(&app)
+}
+
 /// On-demand network latency probe (kept out of the hot loop).
 #[tauri::command]
 pub fn get_latency(host: Option<String>) -> Option<f32> {

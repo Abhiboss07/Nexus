@@ -5,9 +5,56 @@
 
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use super::hardware::HardwareProfile;
 use super::hwmon::HwmonScan;
+
+/// Set when the window is hidden to tray, so cached GPU queries use a long TTL
+/// (the user isn't watching live charts).
+static UI_HIDDEN: AtomicBool = AtomicBool::new(false);
+
+/// Tell the GPU query cache whether the UI is hidden (longer TTL when it is).
+pub fn set_ui_hidden(hidden: bool) {
+    UI_HIDDEN.store(hidden, Ordering::Relaxed);
+}
+
+#[allow(clippy::type_complexity)]
+fn nvidia_cache() -> &'static Mutex<HashMap<String, (Instant, String)>> {
+    static C: OnceLock<Mutex<HashMap<String, (Instant, String)>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Run an `nvidia-smi` query, caching stdout with a visibility-aware TTL. The
+/// many callers (telemetry, GPU info, thermal, intelligence) share a single
+/// spawn within the TTL instead of each forking their own process — the single
+/// biggest idle-CPU lever, especially as a background tray service.
+pub fn nvidia_query(args: &[&str]) -> Option<String> {
+    let key = args.join("\u{1f}");
+    let ttl = if UI_HIDDEN.load(Ordering::Relaxed) {
+        Duration::from_secs(10)
+    } else {
+        Duration::from_millis(1400)
+    };
+    if let Ok(map) = nvidia_cache().lock() {
+        if let Some((t, v)) = map.get(&key) {
+            if t.elapsed() < ttl {
+                return Some(v.clone());
+            }
+        }
+    }
+    let out = Command::new("nvidia-smi").args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).into_owned();
+    if let Ok(mut map) = nvidia_cache().lock() {
+        map.insert(key, (Instant::now(), s.clone()));
+    }
+    Some(s)
+}
 use super::sysfs;
 use super::types::*;
 
@@ -199,17 +246,10 @@ fn parse_csv_f32(s: &str) -> Option<f32> {
 }
 
 fn nvidia_gpu() -> Option<GpuTelemetry> {
-    let out = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.gr,clocks.mem,power.draw,power.limit,power.max_limit",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let line = String::from_utf8_lossy(&out.stdout);
+    let line = nvidia_query(&[
+        "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.gr,clocks.mem,power.draw,power.limit,power.max_limit",
+        "--format=csv,noheader,nounits",
+    ])?;
     let first = line.lines().next()?;
     let f: Vec<&str> = first.split(',').collect();
     if f.len() < 9 {

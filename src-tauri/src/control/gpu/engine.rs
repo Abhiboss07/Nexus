@@ -8,23 +8,13 @@
 //! Validated on RTX 4050 Laptop: power-limit control is **N/A → unsupported**;
 //! Dynamic Boost + RTD3 present; PCIe gen4 x8; CUDA 13.3.
 
-use std::process::Command;
 use std::sync::OnceLock;
 
 use serde::Serialize;
 
 fn smi_query(fields: &str) -> Option<Vec<String>> {
-    let out = Command::new("nvidia-smi")
-        .args([
-            &format!("--query-gpu={fields}"),
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let line = String::from_utf8_lossy(&out.stdout);
+    let q = format!("--query-gpu={fields}");
+    let line = crate::telemetry::collectors::nvidia_query(&[&q, "--format=csv,noheader,nounits"])?;
     let first = line.lines().next()?;
     Some(first.split(',').map(|s| s.trim().to_string()).collect())
 }
@@ -179,13 +169,7 @@ fn command_exists(bin: &str) -> bool {
 }
 
 fn smi_q() -> String {
-    Command::new("nvidia-smi")
-        .arg("-q")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default()
+    crate::telemetry::collectors::nvidia_query(&["-q"]).unwrap_or_default()
 }
 
 fn nvidia_proc_power() -> String {

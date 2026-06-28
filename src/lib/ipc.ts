@@ -428,6 +428,9 @@ export async function onBatteryEvent(
 export const simulateBatteryEvent = (event: BatteryEventPayload["event"]) =>
   invoke<void>("simulate_battery_event", { event });
 
+/** Whether the main window is shown (vs minimized to tray). */
+export const getWindowVisible = () => invoke<boolean>("get_window_visible");
+
 /* ----- Notification Center ----- */
 
 export const notifAdd = (kind: string, severity: string, title: string, body = "") =>

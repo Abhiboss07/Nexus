@@ -52,6 +52,17 @@ fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+    telemetry::collectors::set_ui_hidden(false);
+    let _ = app.emit("window://visible", true);
+}
+
+/// Hide the window to the tray and tell the frontend to pause its polling.
+fn hide_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    telemetry::collectors::set_ui_hidden(true);
+    let _ = app.emit("window://visible", false);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -238,6 +249,7 @@ pub fn run() {
             commands::get_autostart,
             commands::set_autostart,
             commands::simulate_battery_event,
+            commands::get_window_visible,
             commands::app_update_info,
             commands::check_for_update,
             commands::install_update,
@@ -264,6 +276,7 @@ pub fn run() {
             // The telemetry + battery-event threads run regardless of the window,
             // so battery events still fire (notification + overlay) headless.
             let start_hidden = std::env::args().any(|a| a == "--minimized" || a == "--hidden");
+            telemetry::collectors::set_ui_hidden(start_hidden);
             if !start_hidden {
                 show_main(app.handle());
             }
@@ -286,11 +299,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main(app),
-                    "hide" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.hide();
-                        }
-                    }
+                    "hide" => hide_main(app),
                     "quit" => {
                         app.state::<Arc<TelemetryStore>>().end_current_session();
                         logging::shutdown();
@@ -320,19 +329,26 @@ pub fn run() {
                 // Intelligence doesn't need sub-2s resolution and we keep the DB
                 // small. The live ring still streams at the full interval.
                 const STORE_EVERY_MS: u128 = 5_000;
+                // When the window is hidden (tray/background service) nobody is
+                // watching the live charts, so poll the *heavy* collectors (which
+                // spawn nvidia-smi, read SMART, etc.) far less often — big drop in
+                // idle CPU + wakeups. Battery events stay responsive: they're on a
+                // separate cheap watcher below.
+                const HIDDEN_MS: u64 = 10_000;
                 let mut last_store = std::time::Instant::now()
                     .checked_sub(Duration::from_secs(60))
                     .unwrap_or_else(std::time::Instant::now);
-                // Backend battery-event detector — fires native notifications /
-                // bell records / `battery://event` regardless of window state.
-                let mut bat_engine = battery_events::BatteryEventEngine::new();
                 loop {
+                    let visible = handle
+                        .get_webview_window("main")
+                        .and_then(|w| w.is_visible().ok())
+                        .unwrap_or(true);
+                    // Keep the GPU-query cache TTL in sync with actual visibility
+                    // (covers minimize/restore too, not just tray hide/show).
+                    telemetry::collectors::set_ui_hidden(!visible);
                     let snapshot = svc.lock().ok().map(|mut s| s.collect());
                     if let Some(snapshot) = snapshot {
                         let _ = handle.emit(TELEMETRY_EVENT, &snapshot);
-                        if let Some(bat) = snapshot.battery.as_ref() {
-                            bat_engine.evaluate(&handle, bat);
-                        }
                         if last_store.elapsed().as_millis() >= STORE_EVERY_MS {
                             if let Some(sid) = stream_store.current_session() {
                                 // Live FPS from MangoHud's logs when a game is
@@ -344,8 +360,25 @@ pub fn run() {
                             last_store = std::time::Instant::now();
                         }
                     }
-                    let ms = iv.load(Ordering::Relaxed).max(250);
+                    let ms = if visible { iv.load(Ordering::Relaxed).max(250) } else { HIDDEN_MS };
                     std::thread::sleep(Duration::from_millis(ms));
+                }
+            });
+
+            // ----- Battery-event watcher (independent of the UI poll) -----
+            // A lightweight loop reading only the battery from /sys (~2s) so power
+            // events fire promptly whether or not the window is open, and without
+            // tying their latency to the heavy, visibility-throttled telemetry
+            // poll above. The engine records the bell, fires the native
+            // notification, spawns the overlay and emits `battery://event`.
+            let bat_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut engine = battery_events::BatteryEventEngine::new();
+                loop {
+                    if let Some(bat) = telemetry::collectors::battery() {
+                        engine.evaluate(&bat_handle, &bat);
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
                 }
             });
 
@@ -481,7 +514,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                hide_main(window.app_handle());
             }
         })
         .build(tauri::generate_context!())

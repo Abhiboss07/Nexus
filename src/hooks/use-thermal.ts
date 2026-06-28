@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isTauri, getFanInfo, getThermalReport } from "@/lib/ipc";
+import { isAppActive } from "@/lib/app-visibility";
 import type { FanInfo, ThermalReport } from "@/lib/fan-types";
 
 const DEMO_FAN: FanInfo = {
@@ -75,6 +76,8 @@ export function useThermal() {
     let timer: number | undefined;
 
     async function loadLive() {
+      // Skip the thermal report (spawns nvidia-smi) while minimized to tray.
+      if (isTauri() && !isAppActive()) return;
       try {
         const [f, t] = await Promise.all([getFanInfo(), getThermalReport()]);
         if (!cancelled) {

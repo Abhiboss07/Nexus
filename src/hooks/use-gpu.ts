@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri, getGpuInfo, getGpuIntelligence, getGpuCapabilities } from "@/lib/ipc";
+import { isAppActive } from "@/lib/app-visibility";
 import type { GpuCapabilities, GpuInfo, GpuIntelligence } from "@/lib/gpu-types";
 import { useCpu } from "@/hooks/use-telemetry";
 
@@ -74,6 +75,8 @@ export function useGpu() {
     let timer: number | undefined;
 
     async function tick() {
+      // Skip the GPU read (spawns nvidia-smi) while minimized to tray.
+      if (isTauri() && !isAppActive()) return;
       try {
         const [i, t] = await Promise.all([getGpuInfo(), getGpuIntelligence(cpuRef.current)]);
         if (!cancelled) {

@@ -351,18 +351,11 @@ impl Default for FanThermalEngine {
 }
 
 fn nvidia_gpu_temp() -> Option<f32> {
-    let out = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=temperature.gpu",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
+    let out = crate::telemetry::collectors::nvidia_query(&[
+        "--query-gpu=temperature.gpu",
+        "--format=csv,noheader,nounits",
+    ])?;
+    out.lines()
         .next()?
         .trim()
         .parse()
