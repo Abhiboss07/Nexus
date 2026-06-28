@@ -15,6 +15,11 @@ import { useEffect, useRef, useState } from "react";
 
 const counts = new Map<string, number>();
 
+// Expose for headless measurement (dev only): read via window.__renderCounts.
+if (typeof window !== "undefined" && import.meta.env.DEV) {
+  (window as unknown as { __renderCounts?: Map<string, number> }).__renderCounts = counts;
+}
+
 export function useRenderCount(name: string) {
   // Runs after every commit of the calling component (no dep array).
   useEffect(() => {

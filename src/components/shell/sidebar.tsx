@@ -11,8 +11,10 @@ import { useUIStore } from "@/store/ui-store";
 import { GlassTooltip } from "@/components/ui/tooltip";
 import { StatusDot } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import { useRenderCount } from "@/components/dev/render-count";
 
 export function Sidebar() {
+  useRenderCount("Sidebar");
   const expanded = useUIStore((s) => s.sidebarExpanded);
   const toggle = useUIStore((s) => s.toggleSidebar);
   const { pathname } = useLocation();

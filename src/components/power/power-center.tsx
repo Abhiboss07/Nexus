@@ -34,6 +34,7 @@ import {
 import { profileImpact, impactLevel } from "@/lib/power-impact";
 import type { Rule, Trigger } from "@/lib/power-types";
 import { cn } from "@/lib/cn";
+import { useRenderCount } from "@/components/dev/render-count";
 
 const PROFILE_ICONS: Record<string, LucideIcon> = {
   gamepad: Gamepad2,
@@ -57,6 +58,7 @@ function triggerLabel(t: Trigger): string {
 }
 
 export function PowerCenter() {
+  useRenderCount("PowerCenter");
   const powerCap = useCapability("power");
   const powerInfo = usePowerInfo();
   const nexusProfiles = useNexusProfiles();

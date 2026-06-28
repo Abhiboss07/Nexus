@@ -12,8 +12,10 @@ import { InstallIndicator } from "./install-indicator";
 import { WindowControls } from "./window-controls";
 import { ProfileMenu } from "./profile-menu";
 import { Kbd } from "@/components/ui/kbd";
+import { useRenderCount } from "@/components/dev/render-count";
 
 export function TopBar() {
+  useRenderCount("TopBar");
   const { pathname } = useLocation();
   const openPalette = useUIStore((s) => s.toggleCommandPalette);
   const toggleNotifications = useUIStore((s) => s.setNotificationsOpen);

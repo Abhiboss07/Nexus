@@ -7,7 +7,7 @@ import { CommandPalette } from "@/components/command/command-palette";
 import { NotificationDrawer } from "@/components/notifications/notification-drawer";
 import { Toaster } from "@/components/ui/toaster";
 import { SetupWizard } from "@/components/shell/setup-wizard";
-import { RenderCountOverlay } from "@/components/dev/render-count";
+import { RenderCountOverlay, useRenderCount } from "@/components/dev/render-count";
 import { PerfOverlay } from "@/components/dev/perf-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGlobalHotkeys } from "@/hooks/use-hotkeys";
@@ -19,6 +19,7 @@ import { pageTransition } from "@/lib/motion";
  * an animated content outlet. Only the routed content remounts on navigation.
  */
 export function AppShell() {
+  useRenderCount("AppShell");
   useGlobalHotkeys();
   useAmbientPause();
   const location = useLocation();
