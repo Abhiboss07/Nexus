@@ -124,7 +124,7 @@ export function useChargingEvents() {
         body: m.body(bat),
       });
       notify({ kind: "battery", severity: m.severity, title: m.title, body: m.notifBody });
-      if (prefs.soundEnabled) playSound(cfg.sound, cfg.custom, prefs.volume);
+      if (prefs.soundEnabled) playSound(cfg.sound, cfg.custom, prefs.volume, cfg.fx);
     };
 
     const unsub = useTelemetryStore.subscribe((s) => {

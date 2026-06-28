@@ -137,6 +137,26 @@ export const SOUND_CHOICES: { id: SoundChoice; label: string }[] = [
 /** Custom audio is stored as a data URL; cap to keep persisted config small. */
 export const MAX_CUSTOM_SOUND_BYTES = 1024 * 1024;
 
+/**
+ * Per-event sound DSP. Times are in ms; pitch in semitones (−12…+12); speed is a
+ * playback-rate multiplier (0.5…2). Trim applies to custom files (`trimEnd === 0`
+ * means "to the end"). Fades apply to custom files and the synth master.
+ */
+export interface SoundFx {
+  fadeIn: number;
+  fadeOut: number;
+  trimStart: number;
+  trimEnd: number;
+  pitch: number;
+  speed: number;
+  delay: number;
+  repeat: number;
+}
+
+export function defaultFx(): SoundFx {
+  return { fadeIn: 0, fadeOut: 0, trimStart: 0, trimEnd: 0, pitch: 0, speed: 1, delay: 0, repeat: 1 };
+}
+
 /* -------------------------------- Events ---------------------------------- */
 
 export type BatteryEvent =
@@ -174,6 +194,8 @@ export interface EventConfig {
   sound: SoundChoice;
   /** Data URL for a user-supplied sound (null when unset). */
   custom: string | null;
+  /** Sound DSP applied to this event's sound. */
+  fx: SoundFx;
 }
 
 /** The portable per-profile configuration. */
@@ -190,13 +212,13 @@ export interface BatteryProfile {
 }
 
 const DEFAULT_EVENTS: Record<BatteryEvent, EventConfig> = {
-  connect: { anim: "electric", effectId: null, sound: "chime", custom: null },
-  fastCharge: { anim: "neon", effectId: null, sound: "blip", custom: null },
-  slowCharge: { anim: "pulse", effectId: null, sound: "none", custom: null },
-  full: { anim: "fade", effectId: null, sound: "chime", custom: null },
-  disconnect: { anim: "ripple", effectId: null, sound: "power", custom: null },
-  low: { anim: "fade", effectId: null, sound: "blip", custom: null },
-  critical: { anim: "drain", effectId: null, sound: "power", custom: null },
+  connect: { anim: "electric", effectId: null, sound: "chime", custom: null, fx: defaultFx() },
+  fastCharge: { anim: "neon", effectId: null, sound: "blip", custom: null, fx: defaultFx() },
+  slowCharge: { anim: "pulse", effectId: null, sound: "none", custom: null, fx: defaultFx() },
+  full: { anim: "fade", effectId: null, sound: "chime", custom: null, fx: defaultFx() },
+  disconnect: { anim: "ripple", effectId: null, sound: "power", custom: null, fx: defaultFx() },
+  low: { anim: "fade", effectId: null, sound: "blip", custom: null, fx: defaultFx() },
+  critical: { anim: "drain", effectId: null, sound: "power", custom: null, fx: defaultFx() },
 };
 
 export function defaultConfig(): BatteryEventsConfig {
@@ -232,6 +254,23 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
+function sanitizeFx(raw: unknown): SoundFx {
+  const fx = defaultFx();
+  if (!raw || typeof raw !== "object") return fx;
+  const r = raw as Partial<SoundFx>;
+  const num = (v: unknown, lo: number, hi: number, fallback: number) =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+  fx.fadeIn = num(r.fadeIn, 0, 5000, fx.fadeIn);
+  fx.fadeOut = num(r.fadeOut, 0, 5000, fx.fadeOut);
+  fx.trimStart = num(r.trimStart, 0, 10000, fx.trimStart);
+  fx.trimEnd = num(r.trimEnd, 0, 10000, fx.trimEnd);
+  fx.pitch = num(r.pitch, -12, 12, fx.pitch);
+  fx.speed = num(r.speed, 0.5, 2, fx.speed);
+  fx.delay = num(r.delay, 0, 5000, fx.delay);
+  fx.repeat = Math.round(num(r.repeat, 1, 5, fx.repeat));
+  return fx;
+}
+
 /** Coerce arbitrary parsed JSON into a valid config, falling back to defaults. */
 function sanitizeConfig(raw: unknown): BatteryEventsConfig {
   const base = defaultConfig();
@@ -250,6 +289,7 @@ function sanitizeConfig(raw: unknown): BatteryEventsConfig {
       if (ev.sound && SOUND_IDS.has(ev.sound)) base.events[id].sound = ev.sound;
       if (typeof ev.effectId === "string") base.events[id].effectId = ev.effectId;
       if (typeof ev.custom === "string" && ev.custom.startsWith("data:")) base.events[id].custom = ev.custom;
+      if (ev.fx) base.events[id].fx = sanitizeFx(ev.fx);
     }
   }
   return base;
@@ -295,6 +335,7 @@ interface BatteryEventsState extends BatteryEventsConfig {
   setEventEffect: (event: BatteryEvent, effectId: string | null) => void;
   setEventSound: (event: BatteryEvent, sound: SoundChoice) => void;
   setEventCustom: (event: BatteryEvent, url: string | null) => void;
+  setEventFx: (event: BatteryEvent, patch: Partial<SoundFx>) => void;
   setSoundEnabled: (v: boolean) => void;
   setVolume: (v: number) => void;
   resetDefaults: () => void;
@@ -340,6 +381,8 @@ export const useBatteryEventsStore = create<BatteryEventsState>()(
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], sound } } })),
       setEventCustom: (event, custom) =>
         set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], custom } } })),
+      setEventFx: (event, patch) =>
+        set((s) => ({ events: { ...s.events, [event]: { ...s.events[event], fx: { ...s.events[event].fx, ...patch } } } })),
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
       setVolume: (volume) => set({ volume: clamp01(volume) }),
       resetDefaults: () => set({ ...defaultConfig() }),
@@ -446,7 +489,7 @@ export const useBatteryEventsStore = create<BatteryEventsState>()(
     }),
     {
       name: "nexus.batteryEvents",
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         const old = (persisted ?? {}) as Record<string, unknown>;
         const cfg = defaultConfig();

@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Sparkles,
   Pencil,
+  SlidersHorizontal,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass";
 import { Switch } from "@/components/ui/switch";
@@ -22,7 +23,9 @@ import {
   ONESHOT_ANIMS,
   SOUND_CHOICES,
   MAX_CUSTOM_SOUND_BYTES,
+  defaultFx,
   type SoundChoice,
+  type SoundFx,
   type BatteryEvent,
 } from "@/store/battery-events-store";
 import { BatteryGlyph, type GlyphOverride } from "@/components/battery/battery-glyph";
@@ -189,8 +192,17 @@ export function BatteryEventsPanel() {
             onChoice={(c) => s.setEventSound(activeEvent, c)}
             custom={cfg.custom}
             setCustom={(u) => s.setEventCustom(activeEvent, u)}
-            onPreview={() => playSound(cfg.sound, cfg.custom, s.volume)}
+            onPreview={() => playSound(cfg.sound, cfg.custom, s.volume, cfg.fx)}
           />
+
+          {cfg.sound !== "none" && (
+            <SoundFxControls
+              fx={cfg.fx}
+              custom={cfg.sound === "custom"}
+              onChange={(patch) => s.setEventFx(activeEvent, patch)}
+              onReset={() => s.setEventFx(activeEvent, defaultFx())}
+            />
+          )}
         </div>
 
         {/* Live preview */}
@@ -320,6 +332,81 @@ function ProfileBar() {
       </button>
 
       <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
+    </div>
+  );
+}
+
+function SoundFxControls({
+  fx,
+  custom,
+  onChange,
+  onReset,
+}: {
+  fx: SoundFx;
+  custom: boolean;
+  onChange: (patch: Partial<SoundFx>) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const edited = JSON.stringify(fx) !== JSON.stringify(defaultFx());
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-xs text-xs font-medium text-content-muted transition-colors hover:text-content"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" /> Fine-tune sound
+        {edited && <span className="text-2xs text-accent">• edited</span>}
+      </button>
+      {open && (
+        <div className="mt-sm space-y-sm rounded-md border border-border-subtle bg-surface-sunken/40 p-sm">
+          <FxRow label="Fade in" value={fx.fadeIn} min={0} max={3000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ fadeIn: v })} />
+          <FxRow label="Fade out" value={fx.fadeOut} min={0} max={3000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ fadeOut: v })} />
+          {custom && (
+            <>
+              <FxRow label="Trim start" value={fx.trimStart} min={0} max={5000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ trimStart: v })} />
+              <FxRow label="Trim end" value={fx.trimEnd} min={0} max={5000} step={50} fmt={(v) => (v === 0 ? "end" : `${v}ms`)} onChange={(v) => onChange({ trimEnd: v })} />
+            </>
+          )}
+          <FxRow label="Pitch" value={fx.pitch} min={-12} max={12} step={1} fmt={(v) => `${v > 0 ? "+" : ""}${v} st`} onChange={(v) => onChange({ pitch: v })} />
+          <FxRow label="Speed" value={fx.speed} min={0.5} max={2} step={0.05} fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => onChange({ speed: v })} />
+          <FxRow label="Delay" value={fx.delay} min={0} max={3000} step={50} fmt={(v) => `${v}ms`} onChange={(v) => onChange({ delay: v })} />
+          <FxRow label="Repeat" value={fx.repeat} min={1} max={5} step={1} fmt={(v) => `${v}×`} onChange={(v) => onChange({ repeat: v })} />
+          <div className="flex items-center justify-between">
+            <button onClick={onReset} className="inline-flex items-center gap-xs text-2xs text-content-subtle transition-colors hover:text-content">
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+            {!custom && <span className="text-2xs text-content-subtle">Trim applies to custom files.</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FxRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  fmt,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  fmt: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-sm">
+      <span className="w-16 text-2xs text-content-muted">{label}</span>
+      <Slider value={[value]} min={min} max={max} step={step} onValueChange={(v) => onChange(v[0])} className="flex-1" />
+      <span className="w-12 text-right text-2xs tabular-nums text-content-subtle">{fmt(value)}</span>
     </div>
   );
 }
