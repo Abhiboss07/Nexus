@@ -8,14 +8,15 @@ import {
   type BatteryEvent,
 } from "@/store/battery-events-store";
 import { useReduceMotion } from "@/store/prefs-store";
-import { playSound } from "@/lib/sound";
 
 /**
  * The on-demand desktop overlay. A transparent, click-through window the backend
  * spawns when a battery event fires; it renders the event's configured animation,
- * plays its sound (so audio works even with the main window closed), then fades
- * out and destroys its own window. Zero footprint between events — it doesn't
- * exist until an event occurs.
+ * then fades out and destroys its own window. Zero footprint between events.
+ *
+ * Animation-only: sound is played by the main window (its AudioContext is
+ * unlocked after a user gesture and survives hide-to-tray), because this freshly
+ * spawned webview has no gesture and the autoplay policy would block it.
  */
 
 interface OverlayPayload {
@@ -50,8 +51,6 @@ export function OverlayApp() {
 
   const cfg = useBatteryEventsStore((s) => s.events[event]);
   const customEffects = useBatteryEventsStore((s) => s.customEffects);
-  const soundEnabled = useBatteryEventsStore((s) => s.soundEnabled);
-  const volume = useBatteryEventsStore((s) => s.volume);
 
   const effect = cfg.effectId ? customEffects.find((e) => e.id === cfg.effectId) ?? null : null;
   const [nonce, setNonce] = useState(0);
@@ -59,10 +58,8 @@ export function OverlayApp() {
 
   useEffect(() => {
     setVisible(true);
-    // Trigger the one-shot animation on mount.
+    // Trigger the one-shot animation on mount. Sound is the main window's job.
     setNonce(1);
-    // Sound is owned by the overlay so it works headless (main window may be closed).
-    if (soundEnabled) playSound(cfg.sound, cfg.custom, volume, cfg.fx);
 
     // Hold long enough for the configured animation, then fade out and destroy.
     const animMs = effect ? effectDurationMs(effect) : 0;
