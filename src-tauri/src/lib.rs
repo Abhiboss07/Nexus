@@ -14,6 +14,7 @@ mod linux_hub;
 mod logging;
 mod notifications;
 mod optimizer;
+mod overlay;
 #[cfg(test)]
 mod runtime_smoke;
 mod storage;

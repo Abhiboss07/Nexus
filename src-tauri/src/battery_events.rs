@@ -104,6 +104,8 @@ pub fn fire_event(app: &AppHandle, ev: Event, charge_percent: f32, power_w: f32,
     let body = ev.body(charge_percent, power_w);
     crate::notifications::push(app, "battery", ev.severity(), ev.title(), &body);
     crate::notifications::notify_native(app, ev.title(), &body);
+    // On-demand desktop overlay (transparent, click-through, self-destroying).
+    crate::overlay::show(app, ev.id(), charge_percent);
     let _ = app.emit(
         "battery://event",
         EventPayload {

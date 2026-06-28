@@ -52,10 +52,11 @@ const META: Record<
   critical: { icon: "battery", tone: "danger", severity: "critical", title: "Battery Critical", body: (p) => `${p.toFixed(0)}% — plug in soon`, notifBody: "Battery dropped below 10%." },
 };
 
-/** Toast + configured sound for an event (shared by both paths). */
-function presentUx(event: Ev, pct: number, powerW: number) {
-  const prefs = useBatteryEventsStore.getState();
-  const cfg = prefs.events[event];
+/** In-app toast for an event. Sound is owned by the desktop overlay in Tauri
+ * (so it works with the window closed and never double-plays); the browser-demo
+ * path adds sound itself since there is no overlay. */
+function showToast(event: Ev, pct: number, powerW: number) {
+  const cfg = useBatteryEventsStore.getState().events[event];
   const m = META[event];
   pushToast({
     tone: m.tone,
@@ -64,16 +65,16 @@ function presentUx(event: Ev, pct: number, powerW: number) {
     title: m.title,
     body: m.body(pct, powerW),
   });
-  if (prefs.soundEnabled) playSound(cfg.sound, cfg.custom, prefs.volume, cfg.fx);
 }
 
 export function useChargingEvents() {
   useEffect(() => {
     if (isTauri()) {
-      // Backend owns detection + bell + native notification; we add the flourish.
+      // Backend owns detection + bell + native notification + overlay (which
+      // plays the sound). The open window only adds the in-app toast.
       let unlisten = () => {};
       let cancelled = false;
-      void onBatteryEvent((e: BatteryEventPayload) => presentUx(e.event, e.chargePercent, e.powerW)).then((u) => {
+      void onBatteryEvent((e: BatteryEventPayload) => showToast(e.event, e.chargePercent, e.powerW)).then((u) => {
         if (cancelled) u();
         else unlisten = u;
       });
@@ -91,7 +92,10 @@ export function useChargingEvents() {
     let wasFull = false;
 
     const fire = (event: Ev, bat: BatteryTelemetry) => {
-      presentUx(event, bat.chargePercent, bat.powerDrawW);
+      showToast(event, bat.chargePercent, bat.powerDrawW);
+      const prefs = useBatteryEventsStore.getState();
+      const cfg = prefs.events[event];
+      if (prefs.soundEnabled) playSound(cfg.sound, cfg.custom, prefs.volume, cfg.fx);
       notify({ kind: "battery", severity: META[event].severity, title: META[event].title, body: META[event].notifBody });
     };
 
